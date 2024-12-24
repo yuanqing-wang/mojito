@@ -5,7 +5,7 @@ from functools import partial
 
 GCN = partial(dgl.nn.GraphConv, allow_zero_in_degree=True)
 GAT = partial(dgl.nn.GATConv, num_heads=1)
-GraphSAGE = partial(dgl.nn.SAGEConv, 'mean')
+GraphSAGE = partial(dgl.nn.SAGEConv, aggregator_type='mean')
 
 class Encoder(nn.Module):
     """Stacks of DGL layers.
@@ -42,7 +42,7 @@ class Encoder(nn.Module):
         in_features: int,
         hidden_features: int,
         depth: int = 3,
-        layer: torch.nn.Module = GCN,
+        layer: torch.nn.Module = GraphSAGE,
         activation_fn: nn.Module = nn.SiLU(),
 ):
         super().__init__()

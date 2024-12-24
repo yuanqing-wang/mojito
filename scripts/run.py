@@ -18,14 +18,18 @@ def run():
         decoder=Decoder(32, 32),
     )
     
+    if torch.cuda.is_available():
+        tokenizer = tokenizer.cuda()
+    
     optimizer = torch.optim.Adam(tokenizer.parameters(), lr=1e-3)
         
     for _ in range(1000):
         for g, _ in dataset:
             optimizer.zero_grad()
+            if torch.cuda.is_available():
+                g = g.to("cuda")
             loss = tokenizer.reconstruction_loss(g, g.ndata["feat"])
             loss.backward()
-            print(loss)
             optimizer.step()
     
         

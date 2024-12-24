@@ -33,14 +33,17 @@ class Decoder(torch.nn.Module):
         return x
     
     def _loss_one_graph(self, g, x):
-        adj_hat = x @ x.t()
-        print(adj_hat.shape)
         n_nodes = g.number_of_nodes()
+        adj_hat = x @ x.t()
+        adj_hat = adj_hat.sigmoid()
+        adj_hat = adj_hat * (1 - torch.eye(n_nodes))
         adj = torch.zeros(n_nodes, n_nodes)
         adj[g.edges()[0], g.edges()[1]] = 1
+        adj.fill_diagonal_(0)
         # nll_pos = -torch.distributions.Bernoulli(logits=adj_hat).log_prob(adj).mean()
         # nll_neg= -torch.distributions.Bernoulli(logits=adj_hat).log_prob(1 - adj).mean()
-        loss = (adj- adj_hat.sigmoid()).pow(2).mean()
+        loss = (adj - adj_hat).pow(2).mean()
+        print(loss)
         return loss
     
     def loss(self, g, x):
