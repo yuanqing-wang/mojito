@@ -7,6 +7,14 @@ def one_hot(g):
         g.ndata["feat"] = torch.nn.functional.one_hot(
             g.ndata["feat"], num_classes=28,
         ).float()
+        
+        g.ndata["feat"] = torch.cat(
+            [
+                g.ndata["feat"],
+                dgl.laplacian_pe(g, 8),
+            ],
+            dim=-1,
+        )
     return g
 
 def run():
@@ -14,7 +22,7 @@ def run():
     from dgl.data import ZINCDataset
     dataset = ZINCDataset(transform=one_hot)
     tokenizer = Tokenizer(
-        encoder=Encoder(28, 32),
+        encoder=Encoder(28+8, 32),
         decoder=Decoder(32, 32),
     )
     

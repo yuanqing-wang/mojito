@@ -40,10 +40,9 @@ class Decoder(torch.nn.Module):
         adj = torch.zeros(n_nodes, n_nodes)
         adj[g.edges()[0], g.edges()[1]] = 1
         adj.fill_diagonal_(0)
-        # nll_pos = -torch.distributions.Bernoulli(logits=adj_hat).log_prob(adj).mean()
-        # nll_neg= -torch.distributions.Bernoulli(logits=adj_hat).log_prob(1 - adj).mean()
-        loss = (adj - adj_hat).pow(2).mean()
-        print(loss)
+        loss = -torch.distributions.Bernoulli(adj_hat).log_prob(adj).mean()
+        accuracy = (adj_hat.round() == adj).float().mean()
+        print(accuracy)
         return loss
     
     def loss(self, g, x):
