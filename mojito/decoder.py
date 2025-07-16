@@ -8,7 +8,8 @@ class Decoder(torch.nn.Module):
         in_features: int,
         hidden_features: int,
         depth: int = 3,
-        activation_fn: nn.Module = nn.Tanh(),
+        num_classes: int = 28,
+        activation: nn.Module = nn.Tanh(),
     ):
         super().__init__()
         self.layers = nn.ModuleList(
@@ -20,42 +21,50 @@ class Decoder(torch.nn.Module):
                 for idx in range(depth)
             ]
         )
-        
+        self.out = torch.nn.Linear(hidden_features, num_classes + hidden_features)
         self.depth = depth
-        
-        self.activation_fn = activation_fn
+        self.num_classes = num_classes
+        self.hidden_features = hidden_features
+        self.activation = activation
         
     def forward(self, x):
         for idx, layer in enumerate(self.layers):
             x = layer(x)
-            if idx < self.depth - 1:
-                x = self.activation_fn(x)
-        return x
-    
-    def _loss_one_graph(self, g, x):
-        n_nodes = g.number_of_nodes()
-        adj_hat = x @ x.t()
-        adj_hat = adj_hat.sigmoid()
-        adj_hat = adj_hat * (1 - torch.eye(n_nodes))
-        adj = torch.zeros(n_nodes, n_nodes)
-        adj[g.edges()[0], g.edges()[1]] = 1
-        adj.fill_diagonal_(0)
-        loss = -torch.distributions.Bernoulli(adj_hat).log_prob(adj).mean()
-        accuracy = (adj_hat.round() == adj).float().mean()
-        print(accuracy)
-        return loss
+            x = self.activation(x)
+        x = self.out(x)
+        structure, embedding = x.split(
+            [self.num_classes, self.hidden_features], dim=-1
+        )
+        
+        return structure, embedding
     
     def loss(self, g, x):
-        x = self(x)
-        if g.batch_size == 1:
-            return self._loss_one_graph(g, x)
-        else:
-            g.ndata["x"] = x
-            graphs = dgl.unbatch(g)
-            losses = 0.0
-            for graph in graphs:
-                losses += self._loss_one_graph(graph, graph.ndata["x"])
-            return losses
+        structure, embedding = self(x)
+        loss_embedding = torch.distributions.Categorical(
+            logits=embedding
+        ).log_prob(g.ndata["feat"].argmax(-1)).mean().mul(-1)
+        accuracy_embedding = (embedding.argmax(-1) == g.ndata["feat"].argmax(-1)).mean()
+        
+        num_atoms = g.batch_num_nodes()
+        mask = torch.repeat_interleave(
+            torch.arange(len(num_atoms), device=structure.device), num_atoms
+        )
+        mask = (mask.unsqueeze(0) == mask.unsqueeze(1)).float()
+        
+        total_atoms = num_atoms.sum()
+        structure = structure @ structure.t()
+        structure = structure * (1 - torch.eye(total_atoms, device=structure.device))
+        adj = torch.zeros(total_atoms, total_atoms, device=structure.device)
+        adj[g.edges()[0], g.edges()[1]] = 1
+        adj.fill_diagonal_(0)
+        loss_structure = torch.distributions.Bernoulli(
+            logits=structure,
+        ).log_prob(adj)
+        loss_structure = loss_structure[mask].mean()
+        accuracy_structure = (structure.argmax(-1) == adj.argmax(-1))[structure].mean()
+        print(accuracy_embedding, accuracy_structure)
+        return loss_embedding + loss_structure
+
             
         
         
