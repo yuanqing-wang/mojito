@@ -43,13 +43,13 @@ class Decoder(torch.nn.Module):
         loss_embedding = torch.distributions.Categorical(
             logits=embedding
         ).log_prob(g.ndata["feat"].argmax(-1)).mean().mul(-1)
-        accuracy_embedding = (embedding.argmax(-1) == g.ndata["feat"].argmax(-1)).mean()
+        accuracy_embedding = (embedding.argmax(-1) == g.ndata["feat"].argmax(-1)).float().mean()
         
         num_atoms = g.batch_num_nodes()
         mask = torch.repeat_interleave(
             torch.arange(len(num_atoms), device=structure.device), num_atoms
         )
-        mask = (mask.unsqueeze(0) == mask.unsqueeze(1)).float()
+        mask = (mask.unsqueeze(0) == mask.unsqueeze(1))
         
         total_atoms = num_atoms.sum()
         structure = structure @ structure.t()
@@ -59,9 +59,9 @@ class Decoder(torch.nn.Module):
         adj.fill_diagonal_(0)
         loss_structure = torch.distributions.Bernoulli(
             logits=structure,
-        ).log_prob(adj)
+        ).log_prob(adj).mul(-1)
         loss_structure = loss_structure[mask].mean()
-        accuracy_structure = (structure.argmax(-1) == adj.argmax(-1))[structure].mean()
+        accuracy_structure = (structure.sigmoid().round() == adj)[mask].float().mean()
         print(accuracy_embedding, accuracy_structure)
         return loss_embedding + loss_structure
 
