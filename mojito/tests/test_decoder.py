@@ -1,10 +1,8 @@
 import torch
-import dgl
 
 def test_forward():
     from mojito.decoder import Decoder
-    g = dgl.rand_graph(10, 20)
+    a = torch.randn(10, 10, 8).sigmoid().round()
     x = torch.randn(10, 32)
     decoder = Decoder(32, 64)
-    loss = decoder.loss(g, x)
-    print(loss)
+    loss = decoder.loss(a, x)

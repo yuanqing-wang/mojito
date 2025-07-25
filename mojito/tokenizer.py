@@ -10,15 +10,15 @@ class Tokenizer(torch.nn.Module):
         self.encoder = encoder
         self.decoder = decoder
         
-    def encode(self, g, x):
-        return self.encoder(g, x)
+    def encode(self, a, x):
+        return self.encoder(a, x)
     
     forward = encode
     
     def decode(self, x):
         return self.decoder(x)
     
-    def reconstruction_loss(self, g, x):
-        return self.decoder.loss(g, self.encode(g, x))
+    def reconstruction_loss(self, a, x):
+        return self.decoder.loss(a, self.encode(a, x))
         
         
