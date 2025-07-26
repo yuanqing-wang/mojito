@@ -1,16 +1,16 @@
 import torch
 import pandas as pd
 
-# import wandb
-# wandb.login(
-#     key="58466296c2de2fdd61d262115503afdf302441b7",
-# )
-# from datetime import datetime
-# name = datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
-# wandb.init(
-#     project="mojito",
-#     name=name,
-# )
+import wandb
+wandb.login(
+    key="58466296c2de2fdd61d262115503afdf302441b7",
+)
+from datetime import datetime
+name = datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
+wandb.init(
+    project="mojito",
+    name=name,
+)
 
 
 def run():
@@ -23,7 +23,7 @@ def run():
     df = pd.read_csv("250k_rndm_zinc_drugs_clean_3.csv", nrows=100)
     smiles = df["smiles"].tolist()
     dataset = GraphDataset.from_smiles(smiles, power=8)
-    sampler = GraphSampler(dataset, batch_size=32, shuffle=True)
+    sampler = GraphSampler(dataset, batch_size=1024, shuffle=True)
     dataloader = torch.utils.data.DataLoader(
         dataset,
         batch_sampler=sampler,
@@ -54,12 +54,12 @@ def run():
             loss.backward()
             optimizer.step()
     
-            # wandb.log({
-            #     "loss_embedding": loss_embedding.item(),
-            #     "loss_structure": loss_structure.item(),
-            #     "accuracy_embedding": accuracy_embedding.item(),
-            #     "accuracy_structure": accuracy_structure.item(),
-            # })
+            wandb.log({
+                "loss_embedding": loss_embedding.item(),
+                "loss_structure": loss_structure.item(),
+                "accuracy_embedding": accuracy_embedding.item(),
+                "accuracy_structure": accuracy_structure.item(),
+            })
         
 if __name__ == "__main__":
     run()

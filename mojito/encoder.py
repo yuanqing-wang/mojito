@@ -16,7 +16,7 @@ class Layer(nn.Module):
             num_heads=num_heads,
             batch_first=True,
         )
-        self.fc_out = torch.nn.Sequential(
+        self.ffn = torch.nn.Sequential(
             torch.nn.Linear(hidden_features, hidden_features),
             activation,
             torch.nn.Linear(hidden_features, hidden_features),
@@ -26,6 +26,8 @@ class Layer(nn.Module):
             activation,
             torch.nn.Linear(hidden_features, num_heads),
         )
+        self.norm0 = torch.nn.LayerNorm(hidden_features)
+        self.norm1 = torch.nn.LayerNorm(hidden_features)
         
     def forward(
         self,
@@ -36,8 +38,13 @@ class Layer(nn.Module):
         a = a.moveaxis(-1, -3)
         if a.dim() == 4:
             a = a.flatten(0, 1)
-        h = self.mha(h, h, h, attn_mask=a)[0] + h 
-        h = self.fc_out(h) + h
+            
+        h0 = h
+        h = self.norm0(h)
+        h = self.mha(h, h, h, attn_mask=a)[0] + h0
+        h0 = h
+        h = self.norm1(h)
+        h = self.ffn(h) + h0
         return h
 
 class Encoder(nn.Module):
