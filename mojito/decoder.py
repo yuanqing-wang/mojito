@@ -33,7 +33,7 @@ class Decoder(torch.nn.Module):
             x = self.activation(x)
         x = self.out(x)
         structure, embedding = x.split(
-            [self.num_classes, self.hidden_features], dim=-1
+            [self.hidden_features, self.num_classes], dim=-1
         )
         
         return structure, embedding

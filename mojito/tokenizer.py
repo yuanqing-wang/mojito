@@ -24,12 +24,14 @@ class Tokenizer(torch.nn.Module):
         structure, embedding = self.decode(x)
         loss_embedding = torch.distributions.Categorical(
             logits=embedding
-        ).log_prob(x.argmax(-1)).mean().mul(-1)
+        ).log_prob(x0.argmax(-1)).mean().mul(-1)
         accuracy_embedding = (embedding.argmax(-1) == x0.argmax(-1)).float().mean()
         
         adj = a[..., 0]
         structure = structure @ structure.swapaxes(-1, -2)
         structure = structure * (1 - torch.eye(x.shape[-2], device=structure.device))
+        
+        # print(structure.shape, adj.shape)
         loss_structure = torch.distributions.Bernoulli(
             logits=structure,
         ).log_prob(adj).mul(-1).mean()
