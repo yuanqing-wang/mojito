@@ -18,7 +18,22 @@ class Tokenizer(torch.nn.Module):
     def decode(self, x):
         return self.decoder(x)
     
-    def reconstruction_loss(self, a, x):
-        return self.decoder.loss(a, self.encode(a, x))
+    def loss(self, a, x):
+        x0 = x
+        x = self.encode(a, x)
+        structure, embedding = self.decode(x)
+        loss_embedding = torch.distributions.Categorical(
+            logits=embedding
+        ).log_prob(x.argmax(-1)).mean().mul(-1)
+        accuracy_embedding = (embedding.argmax(-1) == x0.argmax(-1)).float().mean()
+        
+        adj = a[..., 0]
+        structure = structure @ structure.swapaxes(-1, -2)
+        structure = structure * (1 - torch.eye(x.shape[-2], device=structure.device))
+        loss_structure = torch.distributions.Bernoulli(
+            logits=structure,
+        ).log_prob(adj).mul(-1).mean()
+        accuracy_structure = (structure.sigmoid().round() == adj).float().mean()
+        return loss_embedding, loss_structure, accuracy_embedding, accuracy_structure
         
         

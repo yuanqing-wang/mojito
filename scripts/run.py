@@ -33,6 +33,7 @@ def run():
     from mojito.data import GraphDataset, GraphSampler
     
     URL = "https://raw.githubusercontent.com/aspuru-guzik-group/chemical_vae/master/models/zinc_properties/250k_rndm_zinc_drugs_clean_3.csv"
+    # URL = "250k_rndm_zinc_drugs_clean_3.csv"
     df = pd.read_csv(URL)
     smiles = df["smiles"].tolist()
     dataset = GraphDataset.from_smiles(smiles, power=8)
@@ -62,7 +63,7 @@ def run():
                 loss_structure,
                 accuracy_embedding,
                 accuracy_structure,    
-            ) = tokenizer.reconstruction_loss(a, h)
+            ) = tokenizer.loss(a, h)
             loss = loss_embedding + loss_structure
             loss.backward()
             optimizer.step()

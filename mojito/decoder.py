@@ -1,3 +1,4 @@
+from turtle import pd
 import torch
 from torch import nn
 
@@ -37,21 +38,6 @@ class Decoder(torch.nn.Module):
         
         return structure, embedding
     
-    def loss(self, a, x):
-        structure, embedding = self(x)
-        loss_embedding = torch.distributions.Categorical(
-            logits=embedding
-        ).log_prob(x.argmax(-1)).mean().mul(-1)
-        accuracy_embedding = (embedding.argmax(-1) == x.argmax(-1)).float().mean()
-        
-        adj = a[..., 0]
-        structure = structure @ structure.swapaxes(-1, -2)
-        structure = structure * (1 - torch.eye(x.shape[-2], device=structure.device))
-        loss_structure = torch.distributions.Bernoulli(
-            logits=structure,
-        ).log_prob(adj).mul(-1).mean()
-        accuracy_structure = (structure.sigmoid().round() == adj).float().mean()
-        return loss_embedding, loss_structure, accuracy_embedding, accuracy_structure
 
             
         
