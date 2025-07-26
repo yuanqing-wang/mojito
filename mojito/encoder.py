@@ -32,12 +32,12 @@ class Layer(nn.Module):
         a: torch.Tensor,
         h: torch.Tensor,
     ):
-        a = self.power_to_head(a)
+        a = self.power_to_head(a) + a[..., 0:1]
         a = a.moveaxis(-1, -3)
         if a.dim() == 4:
             a = a.flatten(0, 1)
-        h, _ = self.mha(h, h, h, attn_mask=a)
-        h = self.fc_out(h)
+        h = self.mha(h, h, h, attn_mask=a)[0] + h 
+        h = self.fc_out(h) + h
         return h
 
 class Encoder(nn.Module):

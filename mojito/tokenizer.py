@@ -22,6 +22,9 @@ class Tokenizer(torch.nn.Module):
         x0 = x
         x = self.encode(a, x)
         structure, embedding = self.decode(x)
+        # print(embedding.var(-2).mean())        
+        print(embedding.argmax(-1))
+
         loss_embedding = torch.distributions.Categorical(
             logits=embedding
         ).log_prob(x0.argmax(-1)).mean().mul(-1)
@@ -36,6 +39,7 @@ class Tokenizer(torch.nn.Module):
             logits=structure,
         ).log_prob(adj).mul(-1).mean()
         accuracy_structure = (structure.sigmoid().round() == adj).float().mean()
+        
         return loss_embedding, loss_structure, accuracy_embedding, accuracy_structure
         
         
