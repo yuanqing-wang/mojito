@@ -43,8 +43,8 @@ def run():
     )
 
     tokenizer = Tokenizer(
-        encoder=Encoder(28+8, 1024),
-        decoder=Decoder(256, 1024),
+        encoder=Encoder(119, 256),
+        decoder=Decoder(256, 256),
     )
     
     if torch.cuda.is_available():
@@ -52,17 +52,17 @@ def run():
     
     optimizer = torch.optim.Adam(tokenizer.parameters(), lr=1e-3)
         
-    for _ in range(1000):
-        for g, _ in dataloader:
+    for _ in range(1000000):
+        for a, h in dataloader:
             optimizer.zero_grad()
             if torch.cuda.is_available():
-                g = g.to("cuda")
+                a, h = a.to("cuda"), h.to("cuda")
             (
                 loss_embedding,
                 loss_structure,
                 accuracy_embedding,
                 accuracy_structure,    
-            ) = tokenizer.reconstruction_loss(g, g.ndata["feat"])
+            ) = tokenizer.reconstruction_loss(a, h)
             loss = loss_embedding + loss_structure
             loss.backward()
             optimizer.step()

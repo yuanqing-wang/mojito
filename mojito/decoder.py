@@ -45,7 +45,7 @@ class Decoder(torch.nn.Module):
         accuracy_embedding = (embedding.argmax(-1) == x.argmax(-1)).float().mean()
         
         adj = a[..., 0]
-        structure = structure @ structure.t()
+        structure = structure @ structure.swapaxes(-1, -2)
         structure = structure * (1 - torch.eye(x.shape[-2], device=structure.device))
         loss_structure = torch.distributions.Bernoulli(
             logits=structure,

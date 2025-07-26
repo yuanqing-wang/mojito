@@ -33,7 +33,10 @@ class Layer(nn.Module):
         h: torch.Tensor,
     ):
         a = self.power_to_head(a)
-        h, _ = self.mha(h, h, h, attn_mask=a.moveaxis(-1, -3))
+        a = a.moveaxis(-1, -3)
+        if a.dim() == 4:
+            a = a.flatten(0, 1)
+        h, _ = self.mha(h, h, h, attn_mask=a)
         h = self.fc_out(h)
         return h
 
