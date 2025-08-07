@@ -19,7 +19,7 @@ def from_smiles(smiles: str):
 def adj_power(a: torch.Tensor, power: int = 8):
     return torch.stack(
         [
-            torch.matrix_power(a, i+1) for i in range(power)
+            torch.matrix_power(torch.nn.functional.normalize(a, p=1, dim=-1), i+1) for i in range(power)
         ],
         dim=-1,
     )

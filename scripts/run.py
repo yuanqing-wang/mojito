@@ -17,13 +17,13 @@ def run():
     from mojito import Encoder, Decoder, Tokenizer
     from mojito.data import GraphDataset, GraphSampler
     
-    # URL = "https://raw.githubusercontent.com/aspuru-guzik-group/chemical_vae/master/models/zinc_properties/250k_rndm_zinc_drugs_clean_3.csv"
-    # df = pd.read_csv(URL)
+    URL = "https://raw.githubusercontent.com/aspuru-guzik-group/chemical_vae/master/models/zinc_properties/250k_rndm_zinc_drugs_clean_3.csv"
+    df = pd.read_csv(URL)
     
-    df = pd.read_csv("250k_rndm_zinc_drugs_clean_3.csv", nrows=100)
+    # df = pd.read_csv("250k_rndm_zinc_drugs_clean_3.csv", nrows=100)
     smiles = df["smiles"].tolist()
     dataset = GraphDataset.from_smiles(smiles, power=8)
-    sampler = GraphSampler(dataset, batch_size=1024, shuffle=True)
+    sampler = GraphSampler(dataset, batch_size=128, shuffle=True)
     dataloader = torch.utils.data.DataLoader(
         dataset,
         batch_sampler=sampler,
