@@ -28,14 +28,14 @@ class Tokenizer(torch.nn.Module):
         ).log_prob(x0.argmax(-1)).mean().mul(-1)
         accuracy_embedding = (embedding.argmax(-1) == x0.argmax(-1)).float().mean()
         
-        adj = a[..., 0]
+        adj = a[..., 0] > 0 
         structure = structure @ structure.swapaxes(-1, -2)
         structure = structure * (1 - torch.eye(x.shape[-2], device=structure.device))
         
         loss_structure = torch.distributions.Bernoulli(
             logits=structure,
         ).log_prob(adj).mul(-1).mean()
-        accuracy_structure = (structure.sigmoid().round() == adj).float().mean()
+        accuracy_structure = (structure.sigmoid().gt(0) == adj).float().mean()
                 
         return loss_embedding, loss_structure, accuracy_embedding, accuracy_structure
         
