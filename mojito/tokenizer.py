@@ -34,8 +34,8 @@ class Tokenizer(torch.nn.Module):
         
         loss_structure = torch.distributions.Bernoulli(
             logits=structure,
-        ).log_prob(adj).mul(-1).mean()
-        accuracy_structure = (structure.sigmoid().gt(0) == adj).float().mean()
+        ).log_prob(adj.float()).mul(-1).mean()
+        accuracy_structure = (structure.gt(0) == adj).float().mean()
                 
         return loss_embedding, loss_structure, accuracy_embedding, accuracy_structure
         
