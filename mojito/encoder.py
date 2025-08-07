@@ -25,6 +25,7 @@ class Layer(nn.Module):
             torch.nn.Linear(power, hidden_features),
             activation,
             torch.nn.Linear(hidden_features, num_heads),
+            torch.nn.LayerNorm(num_heads),
         )
         self.norm0 = torch.nn.LayerNorm(hidden_features)
         self.norm1 = torch.nn.LayerNorm(hidden_features)
@@ -34,7 +35,7 @@ class Layer(nn.Module):
         a: torch.Tensor,
         h: torch.Tensor,
     ):
-        a = self.power_to_head(a) # + a[..., 0:1]
+        a = self.power_to_head(a) + a[..., 0:1]
         a = a.moveaxis(-1, -3)
         if a.dim() == 4:
             a = a.flatten(0, 1)
