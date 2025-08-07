@@ -35,11 +35,15 @@ class Layer(nn.Module):
         a: torch.Tensor,
         h: torch.Tensor,
     ):
+        a0 = a[0]
         a = self.power_to_head(a) # + a[..., 0:1]
         a = a.moveaxis(-1, -3)
         if a.dim() == 4:
             a = a.flatten(0, 1)
             
+        h0 = h
+        h = a0 @ h
+        h = h + h0
         h0 = h
         h = self.norm0(h)
         h = self.mha(h, h, h, attn_mask=a)[0] + h0
