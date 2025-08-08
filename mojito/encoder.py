@@ -35,7 +35,7 @@ class Layer(nn.Module):
         a: torch.Tensor,
         h: torch.Tensor,
     ):
-        a0 = a[0]
+        a0 = a[..., 0]
         a = self.power_to_head(a) # + a[..., 0:1]
         a = a.moveaxis(-1, -3)
         if a.dim() == 4:
