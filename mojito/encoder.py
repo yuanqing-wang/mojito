@@ -41,9 +41,9 @@ class Layer(nn.Module):
         if a.dim() == 4:
             a = a.flatten(0, 1)
             
-        h0 = h
-        h = a0 @ h
-        h = h + h0
+        # h0 = h
+        # h = a0 @ h
+        # h = h + h0
         h0 = h
         h = self.norm0(h)
         h = self.mha(h, h, h, attn_mask=a)[0] + h0
