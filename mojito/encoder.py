@@ -16,6 +16,7 @@ class Layer(nn.Module):
             num_heads=num_heads,
             batch_first=True,
         )
+        self.lin = torch.nn.Linear(hidden_features, hidden_features, bias=False)
         self.ffn = torch.nn.Sequential(
             torch.nn.Linear(hidden_features, hidden_features),
             activation,
@@ -41,15 +42,21 @@ class Layer(nn.Module):
         if a.dim() == 4:
             a = a.flatten(0, 1)
             
-        # h0 = h
-        # h = a0 @ h
-        # h = h + h0
         h0 = h
+        # Attention mask projection
+        h = a0 @ h
+        h = self.lin(h)
+        h = h + h0
         h = self.norm0(h)
-        h = self.mha(h, h, h, attn_mask=a)[0] + h0
+        
         h0 = h
+        # Multihead attention
+        attn_out, _ = self.mha(h, h, h, attn_mask=a)
+        h = attn_out + h0
         h = self.norm1(h)
-        h = self.ffn(h) + h0
+
+        # Feedforward network
+        h = self.ffn(h)
         return h
 
 class Encoder(nn.Module):
@@ -95,7 +102,7 @@ class Encoder(nn.Module):
 
         # projection in
         self.fc_in = torch.nn.Sequential(
-            torch.nn.Linear(in_features, hidden_features),
+            torch.nn.Linear(in_features, hidden_features, bias=False),
             torch.nn.Tanh(),
             torch.nn.Linear(hidden_features, hidden_features),
         )
@@ -117,5 +124,5 @@ class Encoder(nn.Module):
         h = self.fc_in(h)
         for layer in self.layers:
             h = layer(a, h)
-        h = h.tanh()
+        # h = h.tanh()
         return h

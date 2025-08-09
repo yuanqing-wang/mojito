@@ -9,7 +9,7 @@ class Decoder(torch.nn.Module):
         hidden_features: int,
         depth: int = 3,
         num_classes: int = 28,
-        activation: nn.Module = nn.Tanh(),
+        activation: nn.Module = nn.SiLU(),
     ):
         super().__init__()
         self.layers = nn.ModuleList(
