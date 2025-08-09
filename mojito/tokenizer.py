@@ -32,6 +32,7 @@ class Tokenizer(torch.nn.Module):
         structure = structure @ structure.swapaxes(-1, -2) / structure.shape[-1]**0.5
         # structure = (structure.unsqueeze(-3) * structure.unsqueeze(-2)).sum(-1)
         structure = structure * (1 - torch.eye(x.shape[-2], device=structure.device))
+        
         loss_structure = torch.distributions.Bernoulli(
             logits=structure,
         ).log_prob(adj.float()).mul(-1)# .mean()

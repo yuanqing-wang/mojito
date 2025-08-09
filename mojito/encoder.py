@@ -44,19 +44,16 @@ class Layer(nn.Module):
             
         h0 = h
         # Attention mask projection
-        h = a0 @ h
-        h = self.lin(h)
-        h = h + h0
-        h = self.norm0(h)
+        h_graph = a0 @ h
+        h_graph = self.lin(h_graph)
+        h_graph = self.norm0(h0 + h_graph)
         
-        h0 = h
         # Multihead attention
         attn_out, _ = self.mha(h, h, h, attn_mask=a)
-        h = attn_out + h0
-        h = self.norm1(h)
+        h_att = self.norm1(h0 + attn_out)
 
         # Feedforward network
-        h = self.ffn(h)
+        h = self.ffn(h_graph + h_att)
         return h
 
 class Encoder(nn.Module):
@@ -124,5 +121,5 @@ class Encoder(nn.Module):
         h = self.fc_in(h)
         for layer in self.layers:
             h = layer(a, h)
-        # h = h.tanh()
+        h = h.tanh()
         return h
