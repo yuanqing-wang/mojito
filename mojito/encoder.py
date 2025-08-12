@@ -16,7 +16,10 @@ class Layer(nn.Module):
             num_heads=num_heads,
             batch_first=True,
         )
-        self.lin = torch.nn.Linear(hidden_features, hidden_features, bias=False)
+        self.lin = torch.nn.Sequential(
+            torch.nn.Linear(hidden_features, hidden_features, bias=False),
+            activation,
+        )
         self.ffn = torch.nn.Sequential(
             torch.nn.Linear(hidden_features, hidden_features),
             activation,
@@ -30,6 +33,7 @@ class Layer(nn.Module):
         )
         self.norm0 = torch.nn.LayerNorm(hidden_features)
         self.norm1 = torch.nn.LayerNorm(hidden_features)
+        self.norm2 = torch.nn.LayerNorm(hidden_features)
         
     def forward(
         self,
@@ -42,18 +46,15 @@ class Layer(nn.Module):
         if a.dim() == 4:
             a = a.flatten(0, 1)
             
-        h0 = h
+        h_graph = a0 @ h + h
+            
         # Attention mask projection
-        h_graph = a0 @ h
-        h_graph = self.lin(h_graph)
-        h_graph = self.norm0(h0 + h_graph)
-        
-        # Multihead attention
-        attn_out, _ = self.mha(h, h, h, attn_mask=a)
-        h_att = self.norm1(h0 + attn_out)
-
-        # Feedforward network
-        h = self.ffn(h_graph + h_att)
+        h0 = h
+        h = self.norm0(h)
+        h = self.mha(h, h, h, attn_mask=a)[0] + h0
+        h0 = h
+        h = self.norm1(h + h_graph)
+        h = self.ffn(h) + h0
         return h
 
 class Encoder(nn.Module):
