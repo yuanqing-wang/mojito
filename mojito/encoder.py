@@ -46,14 +46,15 @@ class Layer(nn.Module):
         if a.dim() == 4:
             a = a.flatten(0, 1)
             
-        h_graph = a0 @ h + h
+        # h_graph = a0 @ h + h
             
         # Attention mask projection
         h0 = h
         h = self.norm0(h)
         h = self.mha(h, h, h, attn_mask=a)[0] + h0
         h0 = h
-        h = self.norm1(h + h_graph)
+        # h = self.norm1(h + h_graph)
+        h = self.norm1(h)
         h = self.ffn(h) + h0
         return h
 
