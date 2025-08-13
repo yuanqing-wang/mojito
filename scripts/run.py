@@ -31,8 +31,8 @@ def run():
     )
 
     tokenizer = Tokenizer(
-        encoder=Encoder(119, 16),
-        decoder=Decoder(16, 16, num_classes=119),
+        encoder=Encoder(119, 128),
+        decoder=Decoder(128, 128, num_classes=119),
     )
     
     if torch.cuda.is_available():
