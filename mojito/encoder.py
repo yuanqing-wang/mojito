@@ -7,7 +7,7 @@ class Layer(nn.Module):
         self,
         hidden_features: int,
         num_heads: int = 8,
-        power: int = 8,
+        power: int = 16,
         activation: torch.nn.Module = torch.nn.SiLU(),
     ):
         super().__init__()
@@ -40,20 +40,16 @@ class Layer(nn.Module):
         a: torch.Tensor,
         h: torch.Tensor,
     ):
-        a0 = a[..., 0]
-        a = self.power_to_head(a) # + a[..., 0:1]
+        a = self.power_to_head(a)
         a = a.moveaxis(-1, -3)
         if a.dim() == 4:
             a = a.flatten(0, 1)
-            
-        # h_graph = a0 @ h + h
             
         # Attention mask projection
         h0 = h
         h = self.norm0(h)
         h = self.mha(h, h, h, attn_mask=a)[0] + h0
         h0 = h
-        # h = self.norm1(h + h_graph)
         h = self.norm1(h)
         h = self.ffn(h) + h0
         return h
