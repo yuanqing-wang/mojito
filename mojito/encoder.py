@@ -122,9 +122,10 @@ class Encoder(nn.Module):
         if a.dim() == 4:
             a = a.flatten(0, 1)
             
-        h = []
+        hs = []
         for layer in self.layers:
-            h.append(layer(a, h))
-        h = torch.cat(h, dim=-1)
+            h = layer(a, h)
+            hs.append(h)
+        h = torch.cat(hs, dim=-1)
         h = self.out(h)
         return h
