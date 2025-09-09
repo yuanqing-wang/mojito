@@ -7,7 +7,6 @@ class Layer(nn.Module):
         self,
         hidden_features: int,
         num_heads: int = 8,
-        power: int = 16,
         activation: torch.nn.Module = torch.nn.SiLU(),
     ):
         super().__init__()
@@ -16,35 +15,20 @@ class Layer(nn.Module):
             num_heads=num_heads,
             batch_first=True,
         )
-        self.lin = torch.nn.Sequential(
-            torch.nn.Linear(hidden_features, hidden_features, bias=False),
-            activation,
-        )
         self.ffn = torch.nn.Sequential(
             torch.nn.Linear(hidden_features, hidden_features),
             activation,
             torch.nn.Linear(hidden_features, hidden_features),
         )
-        self.power_to_head = torch.nn.Sequential(
-            torch.nn.Linear(power, hidden_features),
-            activation,
-            torch.nn.Linear(hidden_features, num_heads),
-            torch.nn.LayerNorm(num_heads),
-        )
+
         self.norm0 = torch.nn.LayerNorm(hidden_features)
         self.norm1 = torch.nn.LayerNorm(hidden_features)
-        self.norm2 = torch.nn.LayerNorm(hidden_features)
         
     def forward(
         self,
         a: torch.Tensor,
         h: torch.Tensor,
-    ):
-        a = self.power_to_head(a)
-        a = a.moveaxis(-1, -3)
-        if a.dim() == 4:
-            a = a.flatten(0, 1)
-            
+    ):            
         # Attention mask projection
         h0 = h
         h = self.norm0(h)
@@ -101,6 +85,13 @@ class Encoder(nn.Module):
             torch.nn.Tanh(),
             torch.nn.Linear(hidden_features, hidden_features),
         )
+        
+        self.power_to_head = torch.nn.Sequential(
+            torch.nn.Linear(power, hidden_features),
+            activation,
+            torch.nn.Linear(hidden_features, num_heads),
+            torch.nn.LayerNorm(num_heads),
+        )
 
         # list of DGL layers
         self.layers = nn.ModuleList(
@@ -117,6 +108,13 @@ class Encoder(nn.Module):
                 
     def forward(self, a, h):
         h = self.fc_in(h)
+        
+        # project power to num_heads
+        a = self.power_to_head(a)
+        a = a.moveaxis(-1, -3)
+        if a.dim() == 4:
+            a = a.flatten(0, 1)
+            
         for layer in self.layers:
             h = layer(a, h)
         h = h.tanh()
