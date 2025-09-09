@@ -90,7 +90,7 @@ class Encoder(nn.Module):
             torch.nn.Linear(power, hidden_features),
             activation,
             torch.nn.Linear(hidden_features, num_heads),
-            torch.nn.LayerNorm(num_heads),
+            # torch.nn.LayerNorm(num_heads),
         )
 
         # list of DGL layers
