@@ -6,7 +6,7 @@ wandb.login(
     key="58466296c2de2fdd61d262115503afdf302441b7",
 )
 from datetime import datetime
-name = "large-network" + datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
+name = "deep" + datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
 wandb.init(
     project="mojito",
     name=name,
