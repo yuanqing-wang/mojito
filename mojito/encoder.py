@@ -7,7 +7,7 @@ class Layer(nn.Module):
         self,
         hidden_features: int,
         num_heads: int = 8,
-        power: int = 16,
+        power: int = 4,
         activation: torch.nn.Module = torch.nn.SiLU(),
     ):
         super().__init__()
@@ -88,7 +88,7 @@ class Encoder(nn.Module):
         self,
         in_features: int,
         hidden_features: int,
-        depth: int = 8,
+        depth: int = 4,
         num_heads: int = 8,
         power: int = 8,
         activation: nn.Module = nn.SiLU(),
