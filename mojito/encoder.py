@@ -73,7 +73,7 @@ class Encoder(nn.Module):
         self,
         in_features: int,
         hidden_features: int,
-        depth: int = 8,
+        depth: int = 2,
         num_heads: int = 8,
         power: int = 8,
         activation: nn.Module = nn.SiLU(),
@@ -91,7 +91,6 @@ class Encoder(nn.Module):
             torch.nn.Linear(power, hidden_features),
             activation,
             torch.nn.Linear(hidden_features, num_heads),
-            # torch.nn.LayerNorm(num_heads),
         )
 
         # list of DGL layers
