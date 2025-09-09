@@ -72,7 +72,7 @@ class Encoder(nn.Module):
         self,
         in_features: int,
         hidden_features: int,
-        depth: int = 2,
+        depth: int = 8,
         num_heads: int = 8,
         power: int = 8,
         activation: nn.Module = nn.SiLU(),
