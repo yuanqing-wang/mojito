@@ -73,7 +73,7 @@ class Encoder(nn.Module):
         self,
         in_features: int,
         hidden_features: int,
-        depth: int = 8,
+        depth: int = 4,
         num_heads: int = 8,
         power: int = 8,
         activation: nn.Module = nn.SiLU(),
@@ -106,12 +106,6 @@ class Encoder(nn.Module):
             ]
         )
         
-        self.out = torch.nn.Sequential(
-            torch.nn.Linear(depth * hidden_features, hidden_features),
-            activation,
-            torch.nn.Linear(hidden_features, hidden_features),
-            torch.nn.Tanh(),
-        )
                 
     def forward(self, a, h):
         h = self.fc_in(h)
@@ -122,10 +116,7 @@ class Encoder(nn.Module):
         if a.dim() == 4:
             a = a.flatten(0, 1)
             
-        hs = []
         for layer in self.layers:
             h = layer(a, h)
-            hs.append(h)
-        h = torch.cat(hs, dim=-1)
-        h = self.out(h)
+        h = torch.nn.functional.tanh(h)
         return h
