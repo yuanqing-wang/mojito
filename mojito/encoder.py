@@ -105,6 +105,13 @@ class Encoder(nn.Module):
                 for _ in range(depth)
             ]
         )
+        
+        self.out = torch.nn.Sequential(
+            torch.nn.Linear(depth * hidden_features, hidden_features),
+            activation,
+            torch.nn.Linear(hidden_features, hidden_features),
+            torch.nn.Tanh(),
+        )
                 
     def forward(self, a, h):
         h = self.fc_in(h)
@@ -115,7 +122,9 @@ class Encoder(nn.Module):
         if a.dim() == 4:
             a = a.flatten(0, 1)
             
+        h = []
         for layer in self.layers:
-            h = layer(a, h)
-        h = h.tanh()
+            h.append(layer(a, h))
+        h = torch.cat(h, dim=-1)
+        h = self.out(h)
         return h
