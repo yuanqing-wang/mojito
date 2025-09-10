@@ -99,7 +99,6 @@ class Encoder(nn.Module):
                 Layer(
                     hidden_features,
                     num_heads=num_heads,
-                    power=power,
                     activation=activation
                 )
                 for _ in range(depth)
