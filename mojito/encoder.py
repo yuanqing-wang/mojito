@@ -7,7 +7,6 @@ class Layer(nn.Module):
         self,
         hidden_features: int,
         num_heads: int = 8,
-        power: int = 8,
         activation: torch.nn.Module = torch.nn.SiLU(),
     ):
         super().__init__()

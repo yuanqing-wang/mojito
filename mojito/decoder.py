@@ -21,6 +21,13 @@ class Decoder(torch.nn.Module):
                 for idx in range(depth)
             ]
         )
+        self.norms = nn.ModuleList(
+            [
+                torch.nn.LayerNorm(hidden_features)
+                for _ in range(depth)
+            ]
+        )
+        
         self.out = torch.nn.Linear(hidden_features, num_classes + hidden_features)
         self.depth = depth
         self.num_classes = num_classes
@@ -29,6 +36,7 @@ class Decoder(torch.nn.Module):
         
     def forward(self, x):
         for idx, layer in enumerate(self.layers):
+            x = self.norms[idx](x)
             x = layer(x)
             x = self.activation(x)
         x = self.out(x)
