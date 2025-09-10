@@ -91,6 +91,7 @@ class Encoder(nn.Module):
             torch.nn.Linear(power, hidden_features),
             activation,
             torch.nn.Linear(hidden_features, num_heads),
+            torch.nn.Sigmoid(),
         )
 
         # list of DGL layers

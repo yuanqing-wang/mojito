@@ -24,7 +24,7 @@ def run():
     # df = pd.read_csv("250k_rndm_zinc_drugs_clean_3.csv", nrows=100)
     smiles = df["smiles"].tolist()
     dataset = GraphDataset.from_smiles(smiles, power=8)
-    sampler = GraphSampler(dataset, batch_size=128, shuffle=True)
+    sampler = GraphSampler(dataset, batch_size=1024, shuffle=True)
     dataloader = torch.utils.data.DataLoader(
         dataset,
         batch_sampler=sampler,
@@ -38,7 +38,7 @@ def run():
     if torch.cuda.is_available():
         tokenizer = tokenizer.cuda()
     
-    optimizer = torch.optim.Adam(tokenizer.parameters(), lr=1e-3)
+    optimizer = torch.optim.Adam(tokenizer.parameters(), lr=1e-3, weight_decay=1e-5)
         
     for _ in range(1000000):
         for a, h in dataloader:
