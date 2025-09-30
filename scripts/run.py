@@ -24,7 +24,7 @@ def run():
     # df = pd.read_csv("250k_rndm_zinc_drugs_clean_3.csv", nrows=100)
     smiles = df["smiles"].tolist()
     dataset = GraphDataset.from_smiles(smiles, power=8)
-    sampler = GraphSampler(dataset, batch_size=1024, shuffle=True)
+    sampler = GraphSampler(dataset, batch_size=32, shuffle=True)
     dataloader = torch.utils.data.DataLoader(
         dataset,
         batch_sampler=sampler,
