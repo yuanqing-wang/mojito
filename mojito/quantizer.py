@@ -19,7 +19,7 @@ class Quantizer(torch.nn.Module):
         distance = x.unsqueeze(-2) - weight  # (batch, num_nodes, num_classes, hidden_features)
         distance = (distance ** 2).sum(-1)  # (batch, num_nodes, num_classes)
         idxs = distance.argmin(-1)  # (batch, num_nodes)
-        xq = torch.nn.functional.one_hot(idxs, self.num_classes).type
+        xq = torch.nn.functional.one_hot(idxs, self.num_classes).float()
         xq = xq @ weight  # (batch, num_nodes, hidden_features)
         
         loss = (xq.detach() - x).pow(2).mean() + self.beta * (xq - x.detach()).pow(2).mean()
