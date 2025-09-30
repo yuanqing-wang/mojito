@@ -117,5 +117,4 @@ class Encoder(nn.Module):
             
         for layer in self.layers:
             h = layer(a, h)
-        h = torch.nn.functional.tanh(h)
         return h

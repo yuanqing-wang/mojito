@@ -5,11 +5,13 @@ class Tokenizer(torch.nn.Module):
         self,
         encoder: torch.nn.Module,
         decoder: torch.nn.Module,
+        quantizer: torch.nn.Module,
     ):
         super().__init__()
         self.encoder = encoder
         self.decoder = decoder
-        
+        self.quantizer = quantizer
+
     def encode(self, a, x):
         return self.encoder(a, x)
     
@@ -17,11 +19,16 @@ class Tokenizer(torch.nn.Module):
     
     def decode(self, x):
         return self.decoder(x)
-    
+
+    def quantize(self, x):
+        return self.quantizer(x)
+
     def loss(self, a, x):
         x0 = x
         x = self.encode(a, x)
-        structure, embedding = self.decode(x)    
+
+        xq, idxs, loss_quantization = self.quantize(x)
+        structure, embedding = self.decode(xq)
         loss_embedding = torch.distributions.Categorical(
             logits=embedding
         ).log_prob(x0.argmax(-1)).mean().mul(-1)
@@ -41,7 +48,5 @@ class Tokenizer(torch.nn.Module):
         
         
         accuracy_structure = (structure.gt(0) == adj).float().mean()
-                
-        return loss_embedding, loss_structure, accuracy_embedding, accuracy_structure
-        
-        
+
+        return loss_quantization, loss_embedding, loss_structure, accuracy_embedding, accuracy_structure

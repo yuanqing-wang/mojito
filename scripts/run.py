@@ -14,7 +14,7 @@ wandb.init(
 
 
 def run():
-    from mojito import Encoder, Decoder, Tokenizer
+    from mojito import Encoder, Decoder, Tokenizer, Quantizer
     from mojito.data import GraphDataset, GraphSampler
     
     URL = "https://raw.githubusercontent.com/aspuru-guzik-group/chemical_vae/master/models/zinc_properties/250k_rndm_zinc_drugs_clean_3.csv"
@@ -33,6 +33,7 @@ def run():
     tokenizer = Tokenizer(
         encoder=Encoder(119, 128),
         decoder=Decoder(128, 128, num_classes=119),
+        quantizer=Quantizer(num_classes=1024, hidden_features=128)
     )
     
     if torch.cuda.is_available():
@@ -46,16 +47,18 @@ def run():
             if torch.cuda.is_available():
                 a, h = a.to("cuda"), h.to("cuda")
             (
+                loss_quantization,
                 loss_embedding,
                 loss_structure,
                 accuracy_embedding,
                 accuracy_structure,    
             ) = tokenizer.loss(a, h)
-            loss = loss_structure + loss_embedding
+            loss = loss_structure + loss_embedding + loss_quantization
             loss.backward()
             optimizer.step()
             
             wandb.log({
+                "loss_quantization": loss_quantization.item(),
                 "loss_embedding": loss_embedding.item(),
                 "loss_structure": loss_structure.item(),
                 "accuracy_embedding": accuracy_embedding.item(),
