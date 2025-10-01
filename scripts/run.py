@@ -41,7 +41,8 @@ def run():
     
     optimizer = torch.optim.Adam(tokenizer.parameters(), lr=1e-3, weight_decay=1e-5)
         
-    for _ in range(1000000):
+    for idx in range(1000000):
+        t = min(1.0, float(idx) / 10000)
         for a, h in dataloader:
             optimizer.zero_grad()
             if torch.cuda.is_available():

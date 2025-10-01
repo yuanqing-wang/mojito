@@ -23,11 +23,11 @@ class Tokenizer(torch.nn.Module):
     def quantize(self, x):
         return self.quantizer(x)
 
-    def loss(self, a, x):
+    def loss(self, a, x, t):
         x0 = x
         x = self.encode(a, x)
 
-        xq, idxs, loss_quantization = self.quantize(x)
+        xq, idxs, loss_quantization = self.quantize(x, t)
         structure, embedding = self.decode(xq)
         loss_embedding = torch.distributions.Categorical(
             logits=embedding
