@@ -20,8 +20,8 @@ class Tokenizer(torch.nn.Module):
     def decode(self, x):
         return self.decoder(x)
 
-    def quantize(self, x):
-        return self.quantizer(x)
+    def quantize(self, x, t):
+        return self.quantizer(x, t)
 
     def loss(self, a, x, t):
         x0 = x
