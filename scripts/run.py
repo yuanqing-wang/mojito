@@ -6,7 +6,7 @@ wandb.login(
     key="58466296c2de2fdd61d262115503afdf302441b7",
 )
 from datetime import datetime
-name = "deep" + datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
+name = "control" + datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
 wandb.init(
     project="mojito",
     name=name,
@@ -19,12 +19,12 @@ def run():
     
     URL = "https://raw.githubusercontent.com/aspuru-guzik-group/chemical_vae/master/models/zinc_properties/250k_rndm_zinc_drugs_clean_3.csv"
     # URL = "250k_rndm_zinc_drugs_clean_3.csv"
-    df = pd.read_csv(URL, nrows=1000)
+    df = pd.read_csv(URL)
     
     # df = pd.read_csv("250k_rndm_zinc_drugs_clean_3.csv", nrows=100)
     smiles = df["smiles"].tolist()
     dataset = GraphDataset.from_smiles(smiles, power=8)
-    sampler = GraphSampler(dataset, batch_size=32, shuffle=True)
+    sampler = GraphSampler(dataset, batch_size=8, shuffle=True)
     dataloader = torch.utils.data.DataLoader(
         dataset,
         batch_sampler=sampler,
@@ -33,7 +33,7 @@ def run():
     tokenizer = Tokenizer(
         encoder=Encoder(119, 128),
         decoder=Decoder(128, 128, num_classes=119),
-        quantizer=Quantizer(num_classes=1024, hidden_features=128)
+        quantizer=Quantizer(num_classes=10240, hidden_features=128)
     )
     
     if torch.cuda.is_available():
@@ -58,7 +58,7 @@ def run():
             optimizer.step()
             
             wandb.log({
-                "loss_quantization": loss_quantization.item(),
+                # "loss_quantization": loss_quantization.item(),
                 "loss_embedding": loss_embedding.item(),
                 "loss_structure": loss_structure.item(),
                 "accuracy_embedding": accuracy_embedding.item(),
