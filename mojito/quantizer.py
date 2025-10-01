@@ -14,11 +14,6 @@ class Quantizer(torch.nn.Module):
         self.weight = torch.nn.Parameter(torch.empty(num_classes, hidden_features))        
         torch.nn.init.uniform_(self.weight, -1/num_classes, 1/num_classes)
         
-    def gradually_detach(self, x, t):
-        if t >= 1.0:
-            return x.detach()
-        return (1 - t) * x + t * x.detach()
-
     def forward(self, x, t):
         weight = self.weight  # (num_classes, hidden_features)
         distance = x.unsqueeze(-2) - weight  # (batch, num_nodes, num_classes, hidden_features)
@@ -27,6 +22,7 @@ class Quantizer(torch.nn.Module):
         xq = torch.nn.functional.one_hot(idxs, self.num_classes).float()
         xq = xq @ weight  # (batch, num_nodes, hidden_features)
         loss = (xq.detach() - x).pow(2).mean() + self.beta * (xq - x.detach()).pow(2).mean()
-        xq = x + self.gradually_detach(xq - x, t)  # straight-through estimator
+        xq = (1 - t) * x + t * xq  # soft update
+        xq = x + (xq - x).detach()  # straight-through
         return xq, idxs, loss
         
