@@ -19,7 +19,7 @@ def run():
     
     URL = "https://raw.githubusercontent.com/aspuru-guzik-group/chemical_vae/master/models/zinc_properties/250k_rndm_zinc_drugs_clean_3.csv"
     # URL = "250k_rndm_zinc_drugs_clean_3.csv"
-    df = pd.read_csv(URL, nrows=10000)
+    df = pd.read_csv(URL)
     
     # df = pd.read_csv("250k_rndm_zinc_drugs_clean_3.csv", nrows=100)
     smiles = df["smiles"].tolist()
