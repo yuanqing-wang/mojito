@@ -1,3 +1,4 @@
+from calendar import c
 import pandas as pd
 from math import ceil
 from rdkit import Chem
@@ -84,30 +85,35 @@ def run():
     fragments = []
     for smiles in tqdm.tqdm(df["smiles"]):   
         molecule = Chem.MolFromSmiles(smiles)
+        molecule = Chem.RemoveHs(molecule)
+        
+        for a in molecule.GetAtoms():
+            a.SetIntProp("idx", a.GetIdx())
         
         # remove chirality
         Chem.RemoveStereochemistry(molecule)
-        molecule = Chem.AddHs(molecule)
         
-        # replace halogen with hydrogen
-        for atom in molecule.GetAtoms():
-            if atom.GetSymbol() in ["F", "Cl", "Br", "I"]:
-                atom.SetAtomicNum(1)
+        # # replace halogen with hydrogen
+        # for atom in molecule.GetAtoms():
+        #     if atom.GetSymbol() in ["F", "Cl", "Br", "I"]:
+        #         atom.SetAtomicNum(1)
                 
-        # replace S with O if S has fewer than 2 bonds
-        for atom in molecule.GetAtoms():
-            if atom.GetSymbol() == "S" and len(atom.GetNeighbors()) <= 2:
-                atom.SetAtomicNum(8)
+        # # replace S with O if S has fewer than 2 bonds
+        # for atom in molecule.GetAtoms():
+        #     if atom.GetSymbol() == "S" and len(atom.GetNeighbors()) <= 2:
+        #         atom.SetAtomicNum(8)
         
         # rotatable_bonds = Chem.MolFromSmarts('[!$(*#*)&!D1]-&!@[!$(*#*)&!D1]')
-        rotatable_bonds = Chem.MolFromSmarts('[!D1]-&!@[!D1]')
-        rotatable_bonds = molecule.GetSubstructMatches(rotatable_bonds)
+        rotatable_bonds = molecule.GetSubstructMatches(Chem.MolFromSmarts('[*!D1]-&!@[!$(*#*)&!D1]')) + \
+            molecule.GetSubstructMatches(Chem.MolFromSmarts('[!$(*#*)&!D1]-&!@[*D1]'))
         if len(rotatable_bonds) == 0:
             continue
         rotatable_bonds = [molecule.GetBondBetweenAtoms(*bond) for bond in rotatable_bonds]
-        _fragments = Chem.FragmentOnBonds(molecule, [bond.GetIdx() for bond in rotatable_bonds], addDummies=False)
-        _fragments = Chem.RemoveHs(_fragments)
-        _fragments = Chem.MolToSmiles(_fragments).split('.')
+        _fragments = Chem.FragmentOnBonds(molecule, [bond.GetIdx() for bond in rotatable_bonds], addDummies=True)
+        
+        # split into separate molecules
+        frags = Chem.GetMolFrags(_fragments, asMols=True, sanitizeFrags=False)
+        _fragments = Chem.MolToSmiles(_fragments, canonical=True).split('.')
         fragments.extend(_fragments)
         
             
