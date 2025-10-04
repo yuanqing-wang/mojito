@@ -1,6 +1,7 @@
 from calendar import c
 import pandas as pd
 from math import ceil
+from mojito.tokenizer import build_library
 from rdkit import Chem
 from rdkit.Chem import AllChem, Draw
 import tqdm
@@ -81,45 +82,10 @@ def run():
     
     URL = "https://raw.githubusercontent.com/aspuru-guzik-group/chemical_vae/master/models/zinc_properties/250k_rndm_zinc_drugs_clean_3.csv"
     # URL = "250k_rndm_zinc_drugs_clean_3.csv"
-    df = pd.read_csv(URL)
-    fragments = []
-    for smiles in tqdm.tqdm(df["smiles"]):   
-        molecule = Chem.MolFromSmiles(smiles)
-        molecule = Chem.RemoveHs(molecule)
-        
-        for a in molecule.GetAtoms():
-            a.SetIntProp("idx", a.GetIdx())
-        
-        # remove chirality
-        Chem.RemoveStereochemistry(molecule)
-        
-        # # replace halogen with hydrogen
-        # for atom in molecule.GetAtoms():
-        #     if atom.GetSymbol() in ["F", "Cl", "Br", "I"]:
-        #         atom.SetAtomicNum(1)
-                
-        # # replace S with O if S has fewer than 2 bonds
-        # for atom in molecule.GetAtoms():
-        #     if atom.GetSymbol() == "S" and len(atom.GetNeighbors()) <= 2:
-        #         atom.SetAtomicNum(8)
-        
-        # rotatable_bonds = Chem.MolFromSmarts('[!$(*#*)&!D1]-&!@[!$(*#*)&!D1]')
-        rotatable_bonds = molecule.GetSubstructMatches(Chem.MolFromSmarts('[*!D1]-&!@[!$(*#*)&!D1]')) + \
-            molecule.GetSubstructMatches(Chem.MolFromSmarts('[!$(*#*)&!D1]-&!@[*D1]'))
-        if len(rotatable_bonds) == 0:
-            continue
-        rotatable_bonds = [molecule.GetBondBetweenAtoms(*bond) for bond in rotatable_bonds]
-        _fragments = Chem.FragmentOnBonds(molecule, [bond.GetIdx() for bond in rotatable_bonds], addDummies=True)
-        
-        # split into separate molecules
-        frags = Chem.GetMolFrags(_fragments, asMols=True, sanitizeFrags=False)
-        _fragments = Chem.MolToSmiles(_fragments, canonical=True).split('.')
-        fragments.extend(_fragments)
-        
-            
-    fragments = list(set(fragments))
+    df = pd.read_csv(URL)["smiles"].tolist()
+    fragments = build_library(df)
     print(f"Number of unique fragments: {len(fragments)}")
-    smiles_to_pdf(fragments[:1000])
+    smiles_to_pdf(list(fragments)[:1000])
     
     
     

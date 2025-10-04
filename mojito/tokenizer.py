@@ -1,9 +1,10 @@
 from dataclasses import dataclass
-from collections import namedtuple
+from collections import defaultdict, namedtuple
 from functools import reduce  
 from typing import Sequence, Optional
 from rdkit import Chem
 import networkx as nx
+import tqdm
 
 def smiles(fn):
     def wrapper(*args, **kwargs):
@@ -66,30 +67,93 @@ def canonicalize_fragment(fragment):
     modification: dict
         The mapping from the canonical index to the original atom number.
     """
-    modification = {}
-        
-    # remove dummy atoms
-    to_delete = [atom.GetIdx() for atom in fragment.GetAtoms() if atom.GetSymbol() == "*"]
-    fragment = Chem.EditableMol(fragment)
-    for idx in to_delete[::-1]:
-        fragment.RemoveAtom(idx)
-    fragment = fragment.GetMol()
+    modification = defaultdict(list)
+    
+    # remove dummy atoms    
+    for atom in fragment.GetAtoms():
+        if atom.GetSymbol() == "*":
+            atom.SetAtomicNum(1)
+            atom.SetAtomMapNum(0)
+            atom.SetIsotope(0)
     
     # replace halogen with hydrogen
+    fragment = Chem.RWMol(fragment)
+    Chem.Kekulize(fragment)
+    to_delete = []
     for atom in fragment.GetAtoms():
         if atom.GetSymbol() in ["F", "Cl", "Br", "I"]:
-            modification[atom.GetIntProp("_idx")] = str(atom.GetSymbol())
+            # get the _idx of the neighbor atom
+            neighbor = atom.GetNeighbors()[0]
+            modification[neighbor.GetIntProp("_idx")].append(str(atom.GetSymbol()))
             atom.SetAtomicNum(1)
+
+        if atom.GetSymbol() == "O":
+            # C=O -> C
+            if len(atom.GetNeighbors()) == 1:
+                neighbor = atom.GetNeighbors()[0]
+                if neighbor.GetSymbol() == "C":
+                    if fragment.GetBondBetweenAtoms(atom.GetIdx(), neighbor.GetIdx()).GetBondType() == Chem.rdchem.BondType.DOUBLE:
+                        modification[neighbor.GetIntProp("_idx")].append("=O")
+                        to_delete.append(atom.GetIdx())                    
+                
+            # -O- -> -C-
+            else:
+                modification[atom.GetIntProp("_idx")].append("O")
+                atom.SetAtomicNum(6)
             
-    # replace S with O if S has fewer than 2 bonds
-    for atom in fragment.GetAtoms():
-        if atom.GetSymbol() == "S" and len(atom.GetNeighbors()) <= 2:
-            modification[atom.GetIntProp("_idx")] = "S"
-            atom.SetAtomicNum(8)
+        # replace S with O if S has fewer than 2 bonds
+        if atom.GetSymbol() == "S":
+            # S=O -> C
+            if len(atom.GetNeighbors()) == 1:
+                neighbor = atom.GetNeighbors()[0]
+                if neighbor.GetSymbol() == "C":
+                    if fragment.GetBondBetweenAtoms(atom.GetIdx(), neighbor.GetIdx()).GetBondType() == Chem.rdchem.BondType.DOUBLE:
+                        modification[neighbor.GetIntProp("_idx")].append("=S")
+                        to_delete.append(atom.GetIdx())                    
+                
+            # -O- -> -C-
+            elif len(atom.GetNeighbors()) == 2:
+                modification[atom.GetIntProp("_idx")].append("S")
+                atom.SetAtomicNum(6)
+                
+            elif len(atom.GetNeighbors()) == 3:
+                if sum([neighbor.GetAtomicNum() == 8 for neighbor in atom.GetNeighbors()]) == 1:
+                    for neighbor in atom.GetNeighbors():
+                        if neighbor.GetAtomicNum() == 8:
+                            to_delete.append(neighbor.GetIdx())
+                    modification[atom.GetIntProp("_idx")].append("SO")
+                    atom.SetAtomicNum(6)
+                
+            elif len(atom.GetNeighbors()) == 4:
+                if sum([neighbor.GetAtomicNum() == 8 for neighbor in atom.GetNeighbors()]) == 2:
+                    for neighbor in atom.GetNeighbors():
+                        if neighbor.GetAtomicNum() == 8:
+                            to_delete.append(neighbor.GetIdx())
+                    modification[atom.GetIntProp("_idx")].append("SO2")
+                    atom.SetAtomicNum(6)
+
+        if atom.GetSymbol() == "N":
+            # if explicit valence is less than 3, change to Carbon
+            if atom.GetValence(Chem.EXPLICIT) <= 3 and atom.GetFormalCharge() == 0:
+                atom.SetAtomicNum(6)  # Change to Carbon
+                modification[atom.GetIntProp("_idx")].append("N")
+            
+            if atom.GetFormalCharge() > 0:
+                if not any([neighbor.GetAtomicNum() == 8 for neighbor in atom.GetNeighbors()]):
+                    charge = atom.GetFormalCharge()
+                    atom.SetFormalCharge(0)
+                    atom.SetAtomicNum(6)
+                    modification[atom.GetIntProp("_idx")].append(f"N+{charge}")
+                
+    for idx in sorted(list(set(to_delete)), reverse=True):
+        fragment.RemoveAtom(idx)
     
+    Chem.SanitizeMol(fragment)    
+    fragment = fragment.GetMol()
+        
     # reconstruct and canonicalize the fragment
     canonicalize_fragment = Chem.MolFromSmiles(
-        Chem.MolToSmiles(fragment, canonical=True)
+        Chem.MolToSmiles(Chem.RemoveHs(fragment), canonical=True)
     )
     
     # get the mapping from the original fragment to the canonicalized fragment
@@ -105,8 +169,59 @@ def canonicalize_fragment(fragment):
     }
     return canonicalize_fragment, renumbering, modification
 
-_LEFT = Chem.MolFromSmarts('[*!D1]-&!@[!$(*#*)&!D1]')
-_RIGHT = Chem.MolFromSmarts('[!$(*#*)&!D1]-&!@[*D1]')
+def uncanonicalize_fragment(canonical, modification):
+    """ Revert a canonicalized fragment to its original form.
+    
+    Parameters
+    ----------
+    canonical: rdkit.Chem.Mol
+        The canonicalized fragment.
+        
+    modification: dict
+        The mapping from the canonical index to the original atom number.
+        
+    Returns
+    -------
+    fragment: rdkit.Chem.Mol
+        The original fragment.
+    """
+    fragment = Chem.RWMol(canonical)
+    for idx, mods in modification.items():
+        atom = fragment.GetAtomWithIdx(idx)
+        for mod in mods:
+            if mod == "O":
+                atom.SetAtomicNum(8)
+            elif mod == "N":
+                atom.SetAtomicNum(7)
+            elif mod.startswith("N+"):
+                charge = int(mod[2:]) if len(mod) > 2 else 1
+                atom.SetAtomicNum(7)
+                atom.SetFormalCharge(charge)
+            elif mod == "S":
+                atom.SetAtomicNum(16)
+            elif mod.startswith("SO"):
+                atom.SetAtomicNum(16)
+                oxygen_count = int(mod[2:]) if len(mod) > 2 else 1
+                for _ in range(oxygen_count):
+                    new_atom = Chem.Atom(8)
+                    new_idx = fragment.AddAtom(new_atom)
+                    fragment.AddBond(atom.GetIdx(), new_idx, order=Chem.rdchem.BondType.SINGLE)
+            elif mod.startswith("="):
+                new_atom = Chem.Atom(mod[1:])
+                new_idx = fragment.AddAtom(new_atom)
+                fragment.AddBond(atom.GetIdx(), new_idx, order=Chem.rdchem.BondType.DOUBLE)
+            elif mod in ["F", "Cl", "Br", "I"]:
+                new_atom = Chem.Atom(mod)
+                new_idx = fragment.AddAtom(new_atom)
+                fragment.AddBond(atom.GetIdx(), new_idx, order=Chem.rdchem.BondType.SINGLE)
+            else:
+                raise ValueError(f"Unknown modification: {mod}")
+    Chem.SanitizeMol(fragment)
+    return fragment.GetMol()
+    
+
+_LEFT = Chem.MolFromSmarts('[*!D1&!#1&!$([F,Cl,Br,I])]-&!@[!$(*#*)&!D1&!#1&!$([F,Cl,Br,I])]')
+_RIGHT = Chem.MolFromSmarts('[!$(*#*)&!D1&!#1&!$([F,Cl,Br,I])]-&!@[*D1&!#1&!$([F,Cl,Br,I])]')
 def get_rotatable_bonds(molecule):
     return molecule.GetSubstructMatches(_LEFT) + \
         molecule.GetSubstructMatches(_RIGHT)
@@ -135,12 +250,17 @@ def generate_fragments(molecule):
         The list of rotatable bonds that were cut to generate the fragments.
         
     """
+    molecule = Chem.RemoveHs(molecule)
+    Chem.RemoveStereochemistry(molecule)
     for atom in molecule.GetAtoms():
         atom.SetIntProp("_idx", atom.GetIdx())
     rotatable_bonds = get_rotatable_bonds(molecule)
     rotatable_bond_idxs = [molecule.GetBondBetweenAtoms(*bond) for bond in rotatable_bonds]
-    fragments = Chem.FragmentOnBonds(molecule, [bond.GetIdx() for bond in rotatable_bond_idxs], addDummies=True)
-    fragments = Chem.GetMolFrags(fragments, asMols=True, sanitizeFrags=False)            
+    if len(rotatable_bond_idxs) == 0:
+        fragments = [molecule]
+    else:
+        fragments = Chem.FragmentOnBonds(molecule, [bond.GetIdx() for bond in rotatable_bond_idxs], addDummies=True)
+        fragments = Chem.GetMolFrags(fragments, asMols=True, sanitizeFrags=False)            
     fragments, renumbering, modifications = zip(*[canonicalize_fragment(frag) for frag in fragments])
     fragments = [Chem.MolToSmiles(frag, canonical=True) for frag in fragments]
     return fragments, renumbering, modifications, rotatable_bonds
