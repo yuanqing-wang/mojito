@@ -145,25 +145,8 @@ def generate_fragments(molecule):
     fragments = [Chem.MolToSmiles(frag, canonical=True) for frag in fragments]
     return fragments, renumbering, modifications, rotatable_bonds
     
-@smiles
-def molecule_to_tree(molecule):
-    """ Build a tree from the fragments of a molecule.
-    
-    Parameters
-    ----------
-    molecule: rdkit.Chem.Mol or str
-        The molecule to be fragmented and converted to a tree.
-        
-    Returns
-    -------
-    tree: networkx.Graph
-        The tree representation of the molecule.
-        
-    Examples
-    --------
-    
-    """
-    fragments, renumbering, modifications, rotatable_bonds = generate_fragments(molecule)
+def fragments_to_tree(fragments, renumbering, modifications, rotatable_bonds):
+    """ Build a tree from the fragments of a molecule. """
     tree = nx.Graph()
     for idx, fragment in enumerate(fragments):
         tree.add_node(
@@ -187,6 +170,28 @@ def molecule_to_tree(molecule):
             dst_idx=dst_local,
         )
         
+    return tree
+
+@smiles
+def molecule_to_tree(molecule):
+    """ Build a tree from the fragments of a molecule.
+    
+    Parameters
+    ----------
+    molecule: rdkit.Chem.Mol or str
+        The molecule to be fragmented and converted to a tree.
+        
+    Returns
+    -------
+    tree: networkx.Graph
+        The tree representation of the molecule.
+        
+    Examples
+    --------
+    
+    """
+    fragments, renumbering, modifications, rotatable_bonds = generate_fragments(molecule)
+    tree = fragments_to_tree(fragments, renumbering, modifications, rotatable_bonds)
     return tree
 
 def tree_to_molecule(tree):
@@ -240,11 +245,14 @@ def tree_to_molecule(tree):
     molecule = molecule.GetMol()
     return molecule
     
-class Tokenizer:
-    dictionary = {}
+def build_library(molecules):
+    library = set()
+    for smiles in tqdm.tqdm(molecules):
+        fragments, _, _, _ = generate_fragments(smiles)
+        library.update(fragments)
+    return library
     
-    def process(self, molecule):
-        if isinstance(molecule, str):
-            molecule = Chem.MolFromSmiles(molecule)
+        
+        
         
         
