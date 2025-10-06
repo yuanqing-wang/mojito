@@ -366,10 +366,15 @@ def tree_to_molecule(tree):
     return molecule
     
 def build_library(molecules):
-    library = set()
+    library = []
     for smiles in tqdm.tqdm(molecules):
         fragments, _, _, _ = generate_fragments(smiles)
-        library.update(fragments)
+        library += fragments
+    # count occurrences
+    from collections import Counter
+    for fragment, count in Counter(library).most_common(len(Counter(library))):
+        print(f"{fragment}\t{count}")
+    library = set(library)
     return library
     
         
