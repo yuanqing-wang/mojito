@@ -82,7 +82,7 @@ def run():
     
     URL = "https://raw.githubusercontent.com/aspuru-guzik-group/chemical_vae/master/models/zinc_properties/250k_rndm_zinc_drugs_clean_3.csv"
     # URL = "250k_rndm_zinc_drugs_clean_3.csv"
-    df = pd.read_csv(URL)["smiles"].tolist()
+    df = pd.read_csv(URL, nrows=1000)["smiles"].tolist()
     fragments = build_library(df)
     print(f"Number of unique fragments: {len(fragments)}")
     smiles_to_pdf(list(fragments)[:1000])

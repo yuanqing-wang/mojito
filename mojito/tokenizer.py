@@ -220,11 +220,98 @@ def uncanonicalize_fragment(canonical, modification):
     return fragment.GetMol()
     
 
-_LEFT = Chem.MolFromSmarts('[*!D1&!#1&!$([F,Cl,Br,I])]-&!@[!$(*#*)&!D1&!#1&!$([F,Cl,Br,I])]')
-_RIGHT = Chem.MolFromSmarts('[!$(*#*)&!D1&!#1&!$([F,Cl,Br,I])]-&!@[*D1&!#1&!$([F,Cl,Br,I])]')
+
+_NON_RING_SINGLE = Chem.MolFromSmarts("[*]-&!@[*]")
 def get_rotatable_bonds(molecule):
-    return molecule.GetSubstructMatches(_LEFT) + \
-        molecule.GetSubstructMatches(_RIGHT)
+    return molecule.GetSubstructMatches(_NON_RING_SINGLE)
+
+_EXOCYCLIC = Chem.MolFromSmarts("[R]!@[!R]")
+def get_exocyclic_bonds(molecule):
+    return molecule.GetSubstructMatches(_EXOCYCLIC)
+
+def break_fused_ring(fragment):
+    """ Break fused rings in a fragment by cutting one bond in each fused ring.
+    
+    Parameters
+    ----------
+    fragment: rdkit.Chem.Mol
+        The fragment to be processed.
+        
+    Returns
+    -------
+    fragments: list of rdkit.Chem.Mol
+        The list of fragments after breaking fused rings.
+        
+    Examples
+    --------
+    >>> fragment = Chem.MolFromSmiles("C1CCC2CCCCC2C1")
+    >>> fragments = break_fused_ring(fragment)
+    >>> print([Chem.MolToSmiles(frag) for frag in fragments])
+    """
+    print("Breaking fused rings for fragment:", Chem.MolToSmiles(fragment))
+    for idx in range(len(fragment.GetAtoms())):
+        atom = fragment.GetAtomWithIdx(idx)
+        atom.SetIntProp("_idx", atom.GetIdx())
+
+
+    Chem.SanitizeMol(fragment)
+    ring_info = fragment.GetRingInfo()
+    
+    # let it go if there is no ring
+    if ring_info.NumRings() <= 1:
+        return [fragment]
+    
+
+    
+    fragment = Chem.RWMol(fragment)
+    def num_shared_atoms(ring1, ring2):
+        return len(set(ring1) & set(ring2))
+    
+    # enumerate atom rings
+    all_sharing_three = True
+    rings = list(ring_info.AtomRings())
+    for idx, ring in enumerate(rings):
+        other_rings = [r for r in rings if r != ring]
+        
+        # determine if the ring is safe to remove
+        if all([num_shared_atoms(ring, other) <= 2 for other in other_rings]):
+            all_sharing_three = False
+            # build a new fragment that is exclusively the ring
+            new_fragment = Chem.RWMol()
+            mapping = {}
+            for atom in ring:
+                atom = fragment.GetAtomWithIdx(atom)
+                new_atom = Chem.Atom(atom.GetAtomicNum())
+                idx = new_fragment.AddAtom(new_atom)
+                mapping[atom.GetIntProp("_idx")] = idx
+                
+            for atom0 in ring:
+                for atom1 in ring:
+                    if atom0 < atom1:
+                        bond = fragment.GetBondBetweenAtoms(atom0, atom1)
+                        if bond is not None:
+                            begin = bond.GetBeginAtom().GetIntProp("_idx")
+                            end = bond.GetEndAtom().GetIntProp("_idx")
+                            new_fragment.AddBond(mapping[begin], mapping[end], bond.GetBondType())
+                            
+            # remove the ring from the original fragment
+            to_remove = []
+            for atom in sorted(ring):
+                if not any([atom in other for other in other_rings]):
+                    to_remove.append(atom)
+            to_remove = sorted(to_remove, reverse=True)
+            for atom in to_remove:
+                fragment.RemoveAtom(atom)
+                
+            result = [new_fragment.GetMol()] + break_fused_ring(fragment.GetMol())
+            break
+    
+    if all_sharing_three:
+        result = [fragment.GetMol()]
+
+    return result
+        
+            
 
 @smiles
 def generate_fragments(molecule):
@@ -252,18 +339,26 @@ def generate_fragments(molecule):
     """
     molecule = Chem.RemoveHs(molecule)
     Chem.RemoveStereochemistry(molecule)
+    Chem.Kekulize(molecule)
+    print("original molecule:", Chem.MolToSmiles(molecule))
+    
     for atom in molecule.GetAtoms():
         atom.SetIntProp("_idx", atom.GetIdx())
-    rotatable_bonds = get_rotatable_bonds(molecule)
+    rotatable_bonds = get_rotatable_bonds(molecule) + get_exocyclic_bonds(molecule)
+    rotatable_bonds = set([tuple(sorted(bond)) for bond in rotatable_bonds])
+    
     rotatable_bond_idxs = [molecule.GetBondBetweenAtoms(*bond) for bond in rotatable_bonds]
     if len(rotatable_bond_idxs) == 0:
         fragments = [molecule]
     else:
-        fragments = Chem.FragmentOnBonds(molecule, [bond.GetIdx() for bond in rotatable_bond_idxs], addDummies=True)
+        fragments = Chem.FragmentOnBonds(molecule, [bond.GetIdx() for bond in rotatable_bond_idxs], addDummies=False)
         fragments = Chem.GetMolFrags(fragments, asMols=True, sanitizeFrags=False)            
-    fragments, renumbering, modifications = zip(*[canonicalize_fragment(frag) for frag in fragments])
+    # fragments, renumbering, modifications = zip(*[canonicalize_fragment(frag) for frag in fragments])
+    fragments = [break_fused_ring(frag) for frag in fragments]
+    fragments = [frag for sublist in fragments for frag in sublist]
     fragments = [Chem.MolToSmiles(frag, canonical=True) for frag in fragments]
-    return fragments, renumbering, modifications, rotatable_bonds
+    # return fragments, renumbering, modifications, rotatable_bonds
+    return fragments
     
 def fragments_to_tree(fragments, renumbering, modifications, rotatable_bonds):
     """ Build a tree from the fragments of a molecule. """
@@ -326,12 +421,7 @@ def tree_to_molecule(tree):
     -------
     molecule: rdkit.Chem.Mol
         The reconstructed molecule.
-        
-    Examples
-    --------
-    >>> tree = molecule_to_tree("CC(C)CC1=CC=C(C=C1)C(C)C(=O)O")
-    >>> molecule = tree_to_molecule(tree)
-    
+            
     
     """
     # record the origin of each atom in the final molecule
@@ -368,7 +458,7 @@ def tree_to_molecule(tree):
 def build_library(molecules):
     library = []
     for smiles in tqdm.tqdm(molecules):
-        fragments, _, _, _ = generate_fragments(smiles)
+        fragments = generate_fragments(smiles)
         library += fragments
     # count occurrences
     from collections import Counter
