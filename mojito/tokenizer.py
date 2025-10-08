@@ -188,8 +188,17 @@ def molecule_to_tree(molecule):
                 bond_type = 0.0
                 src_global = i
                 dst_global = j
-                src_local = [atom.GetIdx() for atom in fragments[i].GetAtoms() if atom.GetIntProp("_idx") in shared_atoms]
-                dst_local = [atom.GetIdx() for atom in fragments[j].GetAtoms() if atom.GetIntProp("_idx") in shared_atoms]
+                src_local = []
+                dst_local = []
+                for atom in shared_atoms:
+                    for atom_i in fragments[i].GetAtoms():
+                        if atom_i.GetIntProp("_idx") == atom:
+                            src_local.append(atom_i.GetIdx())
+                    for atom_j in fragments[j].GetAtoms():
+                        if atom_j.GetIntProp("_idx") == atom:
+                            dst_local.append(atom_j.GetIdx())
+                
+
                 tree.add_edge(
                     src_global,
                     dst_global,
@@ -229,20 +238,46 @@ def tree_to_molecule(tree):
     molecule = reduce(Chem.CombineMols, fragments)
     molecule = Chem.EditableMol(molecule)
     
-    # loop through edges to add bonds
-    for src_global, dst_global, data in tree.edges(data=True):
-        src_local = data["src_idx"]
-        dst_local = data["dst_idx"]
-        src_atom = None
-        dst_atom = None
+    def find_atom(molecule, global_idx, local_idx):
         for atom in molecule.GetMol().GetAtoms():
-            if atom.GetIntProp("_global_idx") == src_global and atom.GetIntProp("_local_idx") == src_local:
-                src_atom = atom
-            if atom.GetIntProp("_global_idx") == dst_global and atom.GetIntProp("_local_idx") == dst_local:
-                dst_atom = atom
-        assert src_atom is not None and dst_atom is not None
-        molecule.AddBond(src_atom.GetIdx(), dst_atom.GetIdx(), order=Chem.rdchem.BondType.SINGLE)
+            if atom.GetIntProp("_global_idx") == global_idx and atom.GetIntProp("_local_idx") == local_idx:
+                return atom
+        return None
+    
+    # loop through edges to add bonds
+    to_delete = []
+    for src_global, dst_global, data in tree.edges(data=True):
+        src_local = data["src_local"]
+        dst_local = data["dst_local"]
+        bond_type = data["bond_type"]
+        if bond_type > 0:
+            src_atom = find_atom(molecule, src_global, src_local)
+            dst_atom = find_atom(molecule, dst_global, dst_local)
+            assert src_atom is not None and dst_atom is not None
+            molecule.AddBond(src_atom.GetIdx(), dst_atom.GetIdx(), order=Chem.rdchem.BondType(bond_type))
         
+        else:
+            src_atoms = [find_atom(molecule, src_global, idx) for idx in src_local]
+            dst_atoms = [find_atom(molecule, dst_global, idx) for idx in dst_local]
+            
+            for src_atom, dst_atom in zip(src_atoms, dst_atoms):
+                src_idx, dst_idx = src_atom.GetIdx(), dst_atom.GetIdx()
+                
+                # ensure src_idx < dst_idx
+                if src_idx > dst_idx:
+                    src_idx, dst_idx = dst_idx, src_idx
+                    src_atom, dst_atom = dst_atom, src_atom
+                    
+                for neighbors in dst_atom.GetNeighbors():
+                    old_bond = molecule.GetMol().GetBondBetweenAtoms(dst_idx, neighbors.GetIdx())
+                    molecule.AddBond(src_idx, neighbors.GetIdx(), order=old_bond.GetBondType())
+                
+                to_delete.append(dst_idx)
+                
+    
+    for idx in sorted(to_delete, reverse=True):
+        molecule.RemoveAtom(idx)            
+            
     molecule = molecule.GetMol()
     return molecule
     
@@ -250,13 +285,13 @@ def build_library(molecules):
     library = []
     for smiles in tqdm.tqdm(molecules):
         tree = molecule_to_tree(smiles)
+        new_molecule = tree_to_molecule(tree)
+        
+        print(smiles, "   ", Chem.MolToSmiles(new_molecule))
+        
         fragments = [data["fragment"] for _, data in tree.nodes(data=True)]
         library.extend(fragments)
         
-    # count occurrences
-    from collections import Counter
-    for fragment, count in Counter(library).most_common(len(Counter(library))):
-        print(f"{fragment}\t{count}")
     library = set(library)
     return library
     
