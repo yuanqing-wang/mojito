@@ -1,10 +1,11 @@
 from calendar import c
 import pandas as pd
 from math import ceil
-from mojito.tokenizer import build_library
+from mojito.tokenizer import build_library, molecule_to_tree, tree_to_molecule
 from rdkit import Chem
 from rdkit.Chem import AllChem, Draw
 import tqdm
+from rdkit.Chem import Draw
 
 def smiles_to_pdf(
     smiles_list,
@@ -81,11 +82,30 @@ def smiles_to_pdf(
 def run():
     
     URL = "https://raw.githubusercontent.com/aspuru-guzik-group/chemical_vae/master/models/zinc_properties/250k_rndm_zinc_drugs_clean_3.csv"
-    # URL = "250k_rndm_zinc_drugs_clean_3.csv"
-    df = pd.read_csv(URL, nrows=100)["smiles"].tolist()
-    fragments = build_library(df)
-    print(f"Number of unique fragments: {len(fragments)}")
-    smiles_to_pdf(list(fragments)[:1000])
+    df = pd.read_csv(URL)["smiles"].tolist()
+    errors = []
+    
+    for smiles in df:
+        try:
+            smiles = smiles.strip()
+            molecule = Chem.MolFromSmiles(smiles)
+            Chem.RemoveStereochemistry(molecule)
+            smiles = Chem.MolToSmiles(molecule, canonical=True, kekuleSmiles=True)
+            
+            tree = molecule_to_tree(smiles)
+            new_molecule = tree_to_molecule(tree)
+            new_smiles = Chem.MolToSmiles(new_molecule, canonical=True, kekuleSmiles=True)
+
+            if smiles != new_smiles:
+                errors.append((smiles, new_smiles))
+        except:
+            errors.append((smiles, "ERROR"))
+            
+    for i, (s1, s2) in enumerate(errors):
+        print(f"{i}: {s1} -> {s2}")
+
+
+    
     
     
     

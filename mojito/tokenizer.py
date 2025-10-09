@@ -5,6 +5,8 @@ from typing import Sequence, Optional
 from rdkit import Chem
 import networkx as nx
 import tqdm
+from rdkit.Chem import Draw
+import os
 
 def smiles(fn):
     def wrapper(*args, **kwargs):
@@ -103,15 +105,30 @@ def canonicalize_fragment(fragment):
         The mapping from the canonical index to the original atom number.
         
     """
-    canonical = Chem.MolFromSmiles(Chem.MolToSmiles(fragment, canonical=True))
-    Chem.Kekulize(canonical)
-    renumbering = fragment.GetSubstructMatch(canonical)
+    canonical = Chem.MolToSmiles(fragment, canonical=True)
+    canonical = Chem.MolFromSmiles(canonical)
+    Chem.Kekulize(canonical, clearAromaticFlags=True)
+    Chem.Kekulize(fragment, clearAromaticFlags=True)
     
+    if canonical.GetNumAtoms() == 1:
+        # single atom fragment
+        canonical.GetAtomWithIdx(0).SetIntProp(
+            "_idx", fragment.GetAtomWithIdx(0).GetIntProp("_idx")
+        )
+        return canonical
+    
+    renumbering = fragment.GetSubstructMatch(canonical, useChirality=False)
     for new, old in enumerate(renumbering):
         canonical.GetAtomWithIdx(new).SetIntProp(
             "_idx", fragment.GetAtomWithIdx(old).GetIntProp("_idx")
         )
-    
+
+    for atom in canonical.GetAtoms():
+        try:
+            atom.GetIntProp("_idx")
+        except KeyError:
+            print(Chem.MolToSmiles(fragment, canonical=True), Chem.MolToSmiles(fragment, canonical=False), renumbering)
+            raise ValueError("Canonicalization failed.")
     return canonical
         
 @smiles
@@ -134,19 +151,21 @@ def molecule_to_tree(molecule):
     rotatable_bonds = get_rotatable_bonds(molecule) + get_exocyclic_bonds(molecule)
     rotatable_bonds = set([tuple(sorted(bond)) for bond in rotatable_bonds])
     rotatable_bond_idxs = [molecule.GetBondBetweenAtoms(*bond) for bond in rotatable_bonds]
+        
     if len(rotatable_bond_idxs) > 0:
         fragments = Chem.FragmentOnBonds(molecule, [bond.GetIdx() for bond in rotatable_bond_idxs], addDummies=False)
         fragments = Chem.GetMolFrags(fragments, asMols=True, sanitizeFrags=False)    
     else:
         fragments = [molecule]
+        
     
     # break by fused rings
-    fragments = [break_fused_ring(frag) for frag in fragments]
-    fragments = [frag for sublist in fragments for frag in sublist]    
+    # fragments = [break_fused_ring(frag) for frag in fragments]
+    # fragments = [frag for sublist in fragments for frag in sublist]    
     
     # canonicalize fragments
     fragments = [canonicalize_fragment(frag) for frag in fragments]
-    
+        
     # build a tree
     tree = nx.Graph()
     for idx, fragment in enumerate(fragments):
@@ -160,7 +179,6 @@ def molecule_to_tree(molecule):
     for idx, fragment in enumerate(fragments):
         for atom in fragment.GetAtoms():
             atom_to_fragment[atom.GetIntProp("_idx")].append((idx, atom.GetIdx()))
-    
         
     # add rotatable and exocyclic bonds as edges
     for old_src, old_dst in rotatable_bonds:
@@ -228,12 +246,14 @@ def tree_to_molecule(tree):
     fragments = []
     for idx, data in tree.nodes(data=True):
         fragment = Chem.MolFromSmiles(data["fragment"])
+        Chem.Kekulize(fragment, clearAromaticFlags=True)
+        
         # modification = data["modification"]
         for atom in fragment.GetAtoms():
             atom.SetIntProp("_global_idx", idx)
             atom.SetIntProp("_local_idx", atom.GetIdx())
         fragments.append(fragment)
-    
+                
     # combine the fragment into one molecule
     molecule = reduce(Chem.CombineMols, fragments)
     molecule = Chem.EditableMol(molecule)
@@ -279,15 +299,62 @@ def tree_to_molecule(tree):
         molecule.RemoveAtom(idx)            
             
     molecule = molecule.GetMol()
+
+    
+    try:    
+        Chem.SanitizeMol(molecule)
+    except:        
+        # add hydrogens
+        molecule = Chem.AddHs(molecule)
+    
+        # make editable        
+        molecule = Chem.RWMol(molecule)
+        
+        
+        to_remove = []
+        for atom in molecule.GetAtoms():
+            valence = atom.GetTotalValence()
+            permitted = max(Chem.GetPeriodicTable().GetValenceList(atom.GetAtomicNum()))
+            charge = min(atom.GetFormalCharge(), 0)
+            
+            if valence - charge > permitted:
+                num_extra_hydrogens = valence - charge - permitted
+                
+                # if atom is sp2, remove one fewer hydrogen
+                if atom.GetHybridization() == Chem.rdchem.HybridizationType.SP2:
+                    num_extra_hydrogens -= 1
+                
+                atom.SetNoImplicit(True)
+                hydrogen_neighbors = [n for n in atom.GetNeighbors() if n.GetSymbol() == "H"]
+                to_remove.extend([h.GetIdx() for h in hydrogen_neighbors[:num_extra_hydrogens]])
+                atom.SetNoImplicit(False)
+
+        # remove in reverse order to preserve indices
+        for idx in sorted(set(to_remove), reverse=True):
+            molecule.RemoveAtom(idx)
+
+        Chem.SanitizeMol(molecule)
+        molecule = molecule.GetMol()
+        molecule = Chem.RemoveHs(molecule)
+                    
     return molecule
     
 def build_library(molecules):
     library = []
     for smiles in tqdm.tqdm(molecules):
+        old_molecule = Chem.MolFromSmiles(smiles)
+        Chem.RemoveStereochemistry(old_molecule)
+        Chem.Kekulize(old_molecule, clearAromaticFlags=True)
+        old_smiles = Chem.MolToSmiles(old_molecule, canonical=True)
+        
         tree = molecule_to_tree(smiles)
         new_molecule = tree_to_molecule(tree)
+        new_smiles = Chem.MolToSmiles(new_molecule, canonical=True)
         
-        print(smiles, "   ", Chem.MolToSmiles(new_molecule))
+        if old_smiles != new_smiles:
+            print(f"Warning: {old_smiles} != {new_smiles}")
+            # raise ValueError("Molecule reconstruction failed.")
+        
         
         fragments = [data["fragment"] for _, data in tree.nodes(data=True)]
         library.extend(fragments)
