@@ -85,22 +85,20 @@ def run():
     df = pd.read_csv(URL)["smiles"].tolist()
     errors = []
     
-    for smiles in df:
-        try:
+    
+    for smiles in tqdm.tqdm(df):
             smiles = smiles.strip()
             molecule = Chem.MolFromSmiles(smiles)
             Chem.RemoveStereochemistry(molecule)
-            smiles = Chem.MolToSmiles(molecule, canonical=True, kekuleSmiles=True)
+            smiles = Chem.MolToSmiles(molecule, canonical=True, kekuleSmiles=False)
             
             tree = molecule_to_tree(smiles)
             new_molecule = tree_to_molecule(tree)
-            new_smiles = Chem.MolToSmiles(new_molecule, canonical=True, kekuleSmiles=True)
+            new_smiles = Chem.MolToSmiles(new_molecule, canonical=True, kekuleSmiles=False)
 
             if smiles != new_smiles:
                 errors.append((smiles, new_smiles))
-        except:
-            errors.append((smiles, "ERROR"))
-            
+
     for i, (s1, s2) in enumerate(errors):
         print(f"{i}: {s1} -> {s2}")
 

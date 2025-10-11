@@ -67,6 +67,7 @@ def break_fused_ring(fragment):
             atom = fragment.GetAtomWithIdx(atom)
             new_atom = Chem.Atom(atom.GetAtomicNum())
             new_atom.SetIntProp("_idx", atom.GetIntProp("_idx"))
+            new_atom.SetFormalCharge(atom.GetFormalCharge())
             idx = new_fragment.AddAtom(new_atom)
             mapping[atom.GetIntProp("_idx")] = idx
             
@@ -77,7 +78,8 @@ def break_fused_ring(fragment):
                     if bond is not None:
                         begin = bond.GetBeginAtom().GetIntProp("_idx")
                         end = bond.GetEndAtom().GetIntProp("_idx")
-                        new_fragment.AddBond(mapping[begin], mapping[end], bond.GetBondType())
+                        if new_fragment.GetBondBetweenAtoms(mapping[begin], mapping[end]) is None:
+                            new_fragment.AddBond(mapping[begin], mapping[end], bond.GetBondType())
         fragment = new_fragment.GetMol()
         Chem.Kekulize(fragment)
         return fragment
@@ -160,8 +162,8 @@ def molecule_to_tree(molecule):
         
     
     # break by fused rings
-    # fragments = [break_fused_ring(frag) for frag in fragments]
-    # fragments = [frag for sublist in fragments for frag in sublist]    
+    fragments = [break_fused_ring(frag) for frag in fragments]
+    fragments = [frag for sublist in fragments for frag in sublist]    
     
     # canonicalize fragments
     fragments = [canonicalize_fragment(frag) for frag in fragments]
@@ -290,12 +292,13 @@ def tree_to_molecule(tree):
                     
                 for neighbors in dst_atom.GetNeighbors():
                     old_bond = molecule.GetMol().GetBondBetweenAtoms(dst_idx, neighbors.GetIdx())
-                    molecule.AddBond(src_idx, neighbors.GetIdx(), order=old_bond.GetBondType())
+                    if molecule.GetMol().GetBondBetweenAtoms(src_idx, neighbors.GetIdx()) is None:
+                        molecule.AddBond(src_idx, neighbors.GetIdx(), order=old_bond.GetBondType())
                 
                 to_delete.append(dst_idx)
                 
     
-    for idx in sorted(to_delete, reverse=True):
+    for idx in sorted(set(to_delete), reverse=True):
         molecule.RemoveAtom(idx)            
             
     molecule = molecule.GetMol()
