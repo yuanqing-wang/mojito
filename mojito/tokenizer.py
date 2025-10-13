@@ -323,9 +323,12 @@ def tree_to_molecule(tree):
             if valence - charge > permitted:
                 num_extra_hydrogens = valence - charge - permitted
                 
-                # if atom is sp2, remove one fewer hydrogen
+                # if atom is sp2, remove one more hydrogen
                 if atom.GetHybridization() == Chem.rdchem.HybridizationType.SP2:
-                    num_extra_hydrogens -= 1
+                    num_extra_hydrogens += 1
+                    
+                if atom.GetHybridization() == Chem.rdchem.HybridizationType.SP:
+                    num_extra_hydrogens += 2
                 
                 atom.SetNoImplicit(True)
                 hydrogen_neighbors = [n for n in atom.GetNeighbors() if n.GetSymbol() == "H"]
@@ -341,6 +344,64 @@ def tree_to_molecule(tree):
         molecule = Chem.RemoveHs(molecule)
                     
     return molecule
+
+weight = lambda fragment: Chem.rdMolDescriptors.CalcExactMolWt(fragment)
+
+def tree_to_string(tree, score=weight):
+    # tree = tree.to_undirected()
+    tokens = []
+    fragments = [data["fragment"] for _, data in tree.nodes(data=True)]
+    scores = [score(Chem.MolFromSmiles(frag)) for frag in fragments]
+    for idx, s in zip(tree.nodes(), scores):
+        tree.nodes[idx]["score"] = s
+    source = max(tree.nodes, key=lambda idx: tree.nodes[idx]["score"])
+    tokens.append(tree.nodes[source]["fragment"])
+    dfs = nx.dfs_labeled_edges(
+        tree, 
+        source=source,
+        sort_neighbors=lambda neighbors: sorted(neighbors, key=lambda idx: tree.nodes[idx]["score"], reverse=True),
+    )
+    
+    
+    for src, dst, direction in dfs:
+        if src == dst:
+            continue
+        if direction == "reverse":
+            tokens.append("BACK")
+        elif direction == "forward":
+            edge = tree.get_edge_data(src, dst)
+            
+            # handle the source
+            src_local = edge["src_local"]
+            if isinstance(src_local, int):
+                if src_local != 0:
+                    tokens.append(f"src{src_local}")
+            elif isinstance(src_local, list):
+                tokens.append(f"src{sorted(src_local)}")
+
+            # handle the bond type string
+            bond_type = edge["bond_type"]
+            if bond_type > 1.0:
+                tokens.append({
+                    2.0: "=",
+                    3.0: "#",
+                }[bond_type])
+            
+            # handle the destination
+            dst_local = edge["dst_local"]
+            if isinstance(dst_local, int):
+                if dst_local != 0:
+                    tokens.append(f"dst{dst_local}")
+            elif isinstance(dst_local, list):
+                tokens.append(f"dst{sorted(dst_local)}")
+            
+            tokens.append(tree.nodes[dst]["fragment"])
+            
+    tokens = [f"<{token}>" for token in tokens]
+    while tokens and tokens[-1] == "<BACK>":
+        tokens.pop()
+    
+    return tokens
     
 def build_library(molecules):
     library = []

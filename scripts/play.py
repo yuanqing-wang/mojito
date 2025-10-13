@@ -1,7 +1,7 @@
 from calendar import c
 import pandas as pd
 from math import ceil
-from mojito.tokenizer import build_library, molecule_to_tree, tree_to_molecule
+from mojito.tokenizer import build_library, molecule_to_tree, tree_to_molecule, tree_to_string
 from rdkit import Chem
 from rdkit.Chem import AllChem, Draw
 import tqdm
@@ -80,6 +80,8 @@ def smiles_to_pdf(
     return out_pdf
 
 def run():
+    print(len("CN1C=NC2=C1C(=O)N(C(=O)N2C)C"))
+    print(tree_to_string(molecule_to_tree("CN1C=NC2=C1C(=O)N(C(=O)N2C)C")))
     
     URL = "https://raw.githubusercontent.com/aspuru-guzik-group/chemical_vae/master/models/zinc_properties/250k_rndm_zinc_drugs_clean_3.csv"
     df = pd.read_csv(URL)["smiles"].tolist()
@@ -93,6 +95,7 @@ def run():
             smiles = Chem.MolToSmiles(molecule, canonical=True, kekuleSmiles=False)
             
             tree = molecule_to_tree(smiles)
+            
             new_molecule = tree_to_molecule(tree)
             new_smiles = Chem.MolToSmiles(new_molecule, canonical=True, kekuleSmiles=False)
 
