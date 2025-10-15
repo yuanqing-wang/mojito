@@ -1,16 +1,14 @@
-from dataclasses import dataclass
-from collections import defaultdict, namedtuple
-from email.policy import default
+from collections import defaultdict
 from functools import reduce  
 
-from quopri import encode
 from typing import Sequence, Optional
-import zlib
 from rdkit import Chem
+from rdkit import RDLogger
 import networkx as nx
 import tqdm
 from rdkit.Chem import Draw
-import os
+RDLogger.DisableLog('rdApp.*') 
+
 
 
 
@@ -21,8 +19,6 @@ def smiles(fn):
         return fn(*args, **kwargs)
     wrapper.__doc__ = fn.__doc__
     return wrapper
-
-_hash = lambda fragment: zlib.adler32(Chem.MolToSmiles(fragment, canonical=True).encode("utf-8")) if isinstance(fragment, Chem.Mol) else zlib.adler32(fragment.encode("utf-8"))
 
 _NON_RING_SINGLE = Chem.MolFromSmarts("[*]-&!@[*]")
 def get_rotatable_bonds(molecule):
