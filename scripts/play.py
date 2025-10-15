@@ -91,9 +91,8 @@ def smiles_to_pdf(
 
 def run():
     URL = "https://raw.githubusercontent.com/aspuru-guzik-group/chemical_vae/master/models/zinc_properties/250k_rndm_zinc_drugs_clean_3.csv"
-    df = pd.read_csv(URL)["smiles"].tolist()[:1000]
+    df = pd.read_csv(URL)["smiles"].tolist()[:10000]
     errors = []
-    
     
     for smiles in tqdm.tqdm(df):
             smiles = smiles.strip()
@@ -101,8 +100,8 @@ def run():
             Chem.RemoveStereochemistry(molecule)
             smiles = Chem.MolToSmiles(molecule, canonical=True, kekuleSmiles=False)
             # tokens = molecule_to_tokens(smiles)
-            # new_molecule = tokens_to_molecule(molecule_to_tokens(smiles))
-            new_molecule = tree_to_molecule(tokens_to_tree(molecule_to_tokens(smiles)))
+            new_molecule = tree_to_molecule(molecule_to_tree(smiles))
+            # new_molecule = tree_to_molecule(tokens_to_tree(molecule_to_tokens(smiles)))
             new_smiles = Chem.MolToSmiles(new_molecule, canonical=True, kekuleSmiles=False)
 
             if smiles != new_smiles:

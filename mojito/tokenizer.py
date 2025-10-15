@@ -28,7 +28,7 @@ _NON_RING_SINGLE = Chem.MolFromSmarts("[*]-&!@[*]")
 def get_rotatable_bonds(molecule):
     return molecule.GetSubstructMatches(_NON_RING_SINGLE)
 
-_EXOCYCLIC = Chem.MolFromSmarts("[R]!@[!R]")
+_EXOCYCLIC = Chem.MolFromSmarts("[R]~!@[*]")
 def get_exocyclic_bonds(molecule):
     return molecule.GetSubstructMatches(_EXOCYCLIC)
 
@@ -127,7 +127,7 @@ def canonicalize_fragment(fragment):
         )
         return canonical
     
-    renumbering = fragment.GetSubstructMatch(canonical, useChirality=False, useQueryQueryMatches=True)
+    renumbering = fragment.GetSubstructMatch(canonical, useChirality=False)
     for new, old in enumerate(renumbering):
         canonical.GetAtomWithIdx(new).SetIntProp(
             "_idx", fragment.GetAtomWithIdx(old).GetIntProp("_idx")
@@ -166,8 +166,7 @@ def molecule_to_tree(molecule, score=_hash):
         fragments = Chem.FragmentOnBonds(molecule, [bond.GetIdx() for bond in rotatable_bond_idxs], addDummies=False)
         fragments = Chem.GetMolFrags(fragments, asMols=True, sanitizeFrags=False)    
     else:
-        fragments = [molecule]
-        
+        fragments = [molecule]   
     
     # break by fused rings
     fragments = [break_fused_ring(frag) for frag in fragments]
@@ -235,6 +234,9 @@ def molecule_to_tree(molecule, score=_hash):
                     bond_type=bond_type,
                 )
                 
+                
+    # assert connected
+    assert nx.is_connected(tree.to_undirected())
     return tree
     
 def tree_to_molecule(tree):
@@ -341,8 +343,19 @@ def tree_to_molecule(tree):
         while not can_sanitize(molecule) and len(to_remove) > 0:
             idx = to_remove.pop()
             molecule.RemoveAtom(idx)
-                        
-        # Chem.SanitizeMol(molecule)
+            
+        # if there is radicals, attach hydrogens
+        num_atoms = molecule.GetNumAtoms()
+        to_remove = []
+        for idx in range(num_atoms):
+            atom = molecule.GetAtomWithIdx(idx)
+            if atom.GetNumRadicalElectrons()==1 and atom.GetFormalCharge()==1:
+                h = Chem.Atom(1)
+                h.SetNoImplicit(True)
+                h_idx = molecule.AddAtom(h)
+                molecule.AddBond(idx, h_idx, order=Chem.rdchem.BondType.SINGLE)
+
+        Chem.SanitizeMol(molecule)
         molecule = molecule.GetMol()
         molecule = Chem.RemoveHs(molecule)
                     
