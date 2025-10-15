@@ -1,12 +1,18 @@
 from dataclasses import dataclass
 from collections import defaultdict, namedtuple
+from email.policy import default
 from functools import reduce  
+
+from quopri import encode
 from typing import Sequence, Optional
+import zlib
 from rdkit import Chem
 import networkx as nx
 import tqdm
 from rdkit.Chem import Draw
 import os
+
+
 
 def smiles(fn):
     def wrapper(*args, **kwargs):
@@ -15,6 +21,8 @@ def smiles(fn):
         return fn(*args, **kwargs)
     wrapper.__doc__ = fn.__doc__
     return wrapper
+
+_hash = lambda fragment: zlib.adler32(Chem.MolToSmiles(fragment, canonical=True).encode("utf-8")) if isinstance(fragment, Chem.Mol) else zlib.adler32(fragment.encode("utf-8"))
 
 _NON_RING_SINGLE = Chem.MolFromSmarts("[*]-&!@[*]")
 def get_rotatable_bonds(molecule):
@@ -107,10 +115,10 @@ def canonicalize_fragment(fragment):
         The mapping from the canonical index to the original atom number.
         
     """
+    Chem.Kekulize(fragment, clearAromaticFlags=True)
     canonical = Chem.MolToSmiles(fragment, canonical=True)
     canonical = Chem.MolFromSmiles(canonical)
     Chem.Kekulize(canonical, clearAromaticFlags=True)
-    Chem.Kekulize(fragment, clearAromaticFlags=True)
     
     if canonical.GetNumAtoms() == 1:
         # single atom fragment
@@ -119,7 +127,7 @@ def canonicalize_fragment(fragment):
         )
         return canonical
     
-    renumbering = fragment.GetSubstructMatch(canonical, useChirality=False)
+    renumbering = fragment.GetSubstructMatch(canonical, useChirality=False, useQueryQueryMatches=True)
     for new, old in enumerate(renumbering):
         canonical.GetAtomWithIdx(new).SetIntProp(
             "_idx", fragment.GetAtomWithIdx(old).GetIntProp("_idx")
@@ -134,7 +142,7 @@ def canonicalize_fragment(fragment):
     return canonical
         
 @smiles
-def molecule_to_tree(molecule):
+def molecule_to_tree(molecule, score=_hash):
     """ Generate fragments by cutting rotatable bonds.
     
     Parameters
@@ -169,7 +177,7 @@ def molecule_to_tree(molecule):
     fragments = [canonicalize_fragment(frag) for frag in fragments]
         
     # build a tree
-    tree = nx.Graph()
+    tree = nx.DiGraph()
     for idx, fragment in enumerate(fragments):
         tree.add_node(
             idx,
@@ -185,8 +193,9 @@ def molecule_to_tree(molecule):
     # add rotatable and exocyclic bonds as edges
     for old_src, old_dst in rotatable_bonds:
         bond_type = molecule.GetBondBetweenAtoms(old_src, old_dst).GetBondTypeAsDouble()
-        for src_global, src_local in atom_to_fragment[old_src]:
+        for src_global, src_local in atom_to_fragment[old_src]:                        
             for dst_global, dst_local in atom_to_fragment[old_dst]:
+            
                     tree.add_edge(
                         src_global,
                         dst_global,
@@ -218,7 +227,6 @@ def molecule_to_tree(molecule):
                         if atom_j.GetIntProp("_idx") == atom:
                             dst_local.append(atom_j.GetIdx())
                 
-
                 tree.add_edge(
                     src_global,
                     dst_global,
@@ -226,7 +234,7 @@ def molecule_to_tree(molecule):
                     dst_local=dst_local,
                     bond_type=bond_type,
                 )
-    
+                
     return tree
     
 def tree_to_molecule(tree):
@@ -302,106 +310,176 @@ def tree_to_molecule(tree):
         molecule.RemoveAtom(idx)            
             
     molecule = molecule.GetMol()
-
     
-    try:    
-        Chem.SanitizeMol(molecule)
-    except:        
-        # add hydrogens
-        molecule = Chem.AddHs(molecule)
-    
+    def can_sanitize(molecule):
+        try:
+            Chem.SanitizeMol(molecule)
+            return True
+        except:
+            return False
+        
+    if not can_sanitize(molecule):
         # make editable        
+        molecule = Chem.AddHs(molecule)
         molecule = Chem.RWMol(molecule)
         
+        for atom in molecule.GetAtoms():
+            atom.SetNoImplicit(True)
+
         
         to_remove = []
         for atom in molecule.GetAtoms():
             valence = atom.GetTotalValence()
-            permitted = max(Chem.GetPeriodicTable().GetValenceList(atom.GetAtomicNum()))
+            permitted = Chem.GetPeriodicTable().GetDefaultValence(atom.GetAtomicNum())
             charge = min(atom.GetFormalCharge(), 0)
-            
+        
             if valence - charge > permitted:
-                num_extra_hydrogens = valence - charge - permitted
-                
-                # if atom is sp2, remove one more hydrogen
-                if atom.GetHybridization() == Chem.rdchem.HybridizationType.SP2:
-                    num_extra_hydrogens += 1
-                    
-                if atom.GetHybridization() == Chem.rdchem.HybridizationType.SP:
-                    num_extra_hydrogens += 2
-                
-                atom.SetNoImplicit(True)
+                num_excess = valence - charge - permitted
                 hydrogen_neighbors = [n for n in atom.GetNeighbors() if n.GetSymbol() == "H"]
-                to_remove.extend([h.GetIdx() for h in hydrogen_neighbors[:num_extra_hydrogens]])
-                atom.SetNoImplicit(False)
-
-        # remove in reverse order to preserve indices
-        for idx in sorted(set(to_remove), reverse=True):
+                to_remove.extend([h.GetIdx() for h in hydrogen_neighbors[:num_excess]])
+        
+        while not can_sanitize(molecule) and len(to_remove) > 0:
+            idx = to_remove.pop()
             molecule.RemoveAtom(idx)
-
-        Chem.SanitizeMol(molecule)
+                        
+        # Chem.SanitizeMol(molecule)
         molecule = molecule.GetMol()
         molecule = Chem.RemoveHs(molecule)
                     
     return molecule
 
-weight = lambda fragment: Chem.rdMolDescriptors.CalcExactMolWt(fragment)
-
-def tree_to_string(tree, score=weight):
-    # tree = tree.to_undirected()
+def tree_to_tokens(tree, score=_hash):
+    ordered_edges = [(u, v) for u, v in tree.edges()]
+    # tree = tree.to_directed()
+    tree = nx.Graph(tree)  # make it undirected
     tokens = []
     fragments = [data["fragment"] for _, data in tree.nodes(data=True)]
     scores = [score(Chem.MolFromSmiles(frag)) for frag in fragments]
     for idx, s in zip(tree.nodes(), scores):
         tree.nodes[idx]["score"] = s
     source = max(tree.nodes, key=lambda idx: tree.nodes[idx]["score"])
+    
+    
     tokens.append(tree.nodes[source]["fragment"])
     dfs = nx.dfs_labeled_edges(
         tree, 
         source=source,
         sort_neighbors=lambda neighbors: sorted(neighbors, key=lambda idx: tree.nodes[idx]["score"], reverse=True),
     )
-    
-    
+
     for src, dst, direction in dfs:
         if src == dst:
             continue
+        
+        if (dst, src) in ordered_edges:
+            assert (src, dst) not in ordered_edges
+            # dst, src = src, dst
+            flipped = True
+        else:
+            flipped = False
+        
         if direction == "reverse":
-            tokens.append("BACK")
-        elif direction == "forward":
+            if "BACK" in tokens[-1]:
+                number_of_backs = int(tokens[-1][5:]) + 1
+                tokens[-1] = f"BACK {number_of_backs}"
+            else:
+                tokens.append("BACK 1")
+                
+        elif direction == "forward":                
             edge = tree.get_edge_data(src, dst)
+            edge_token = "EDGE "
             
             # handle the source
-            src_local = edge["src_local"]
-            if isinstance(src_local, int):
-                if src_local != 0:
-                    tokens.append(f"src{src_local}")
-            elif isinstance(src_local, list):
-                tokens.append(f"src{sorted(src_local)}")
+            src_local = edge["src_local"] if not flipped else edge["dst_local"]
+            edge_token += str(src_local)
 
             # handle the bond type string
             bond_type = edge["bond_type"]
-            if bond_type > 1.0:
-                tokens.append({
-                    2.0: "=",
-                    3.0: "#",
-                }[bond_type])
+            edge_token += {
+                0.0: ":",
+                1.0: "-",
+                2.0: "=",
+                3.0: "#",
+            }[bond_type]
             
             # handle the destination
-            dst_local = edge["dst_local"]
-            if isinstance(dst_local, int):
-                if dst_local != 0:
-                    tokens.append(f"dst{dst_local}")
-            elif isinstance(dst_local, list):
-                tokens.append(f"dst{sorted(dst_local)}")
+            dst_local = edge["dst_local"] if not flipped else edge["src_local"]
+            edge_token += str(dst_local)
+                
+            if edge_token != "EDGE 0-0":
+                tokens.append(edge_token)
             
             tokens.append(tree.nodes[dst]["fragment"])
             
     tokens = [f"<{token}>" for token in tokens]
-    while tokens and tokens[-1] == "<BACK>":
+    while "BACK" in tokens[-1]:
         tokens.pop()
-    
     return tokens
+    
+def tokens_to_tree(tokens):
+    # define token types
+    is_edge = lambda token: "EDGE" in token
+    is_back = lambda token: "BACK" in token
+    is_fragment = lambda token: not (is_edge(token) or is_back(token))
+    
+    # insert missing <EDGE 0-0> tokens
+    cursor = 0
+    while cursor < len(tokens) - 1:
+        if not is_edge(tokens[cursor]) and is_fragment(tokens[cursor + 1]):
+            tokens.insert(cursor + 1, "<EDGE 0-0>")
+        cursor += 1
+    
+    tree = nx.Graph()
+    edge_to_add = None
+    layers = defaultdict(list)
+    cursor = 0
+    while tokens:
+        token = tokens.pop(0)
+        if is_back(token):
+            number_of_backs = int(token[5:-1])
+            cursor -= number_of_backs
+        
+        elif is_fragment(token):
+            idx = len(tree)
+            tree.add_node(
+                idx,
+                fragment=token[1:-1],
+            )
+            if edge_to_add is not None:
+                tree.add_edge(
+                    layers[cursor][-1],
+                    idx,
+                    **edge_to_add,
+                )
+
+            cursor += 1
+            layers[cursor].append(idx)
+
+        elif is_edge(token):
+            edge_token = token[6:-1]
+            bond_type_char = next(c for c in edge_token if not c.isdigit() and c not in " [],")
+            bond_type = {
+                ":": 0.0,
+                "-": 1.0,
+                "=": 2.0,
+                "#": 3.0,
+            }[bond_type_char]
+            src_local, dst_local = edge_token.split(bond_type_char)
+            src_local, dst_local = eval(src_local), eval(dst_local)
+            edge_to_add = {
+                "src_local": src_local,
+                "dst_local": dst_local,
+                "bond_type": bond_type,
+            }
+            
+    return tree
+    
+    
+def molecule_to_tokens(molecule):
+    return tree_to_tokens(molecule_to_tree(molecule))
+
+def tokens_to_molecule(tokens):
+    return tree_to_molecule(tokens_to_tree(tokens))
     
 def build_library(molecules):
     library = []

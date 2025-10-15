@@ -1,7 +1,17 @@
 from calendar import c
+from hmac import new
 import pandas as pd
 from math import ceil
-from mojito.tokenizer import build_library, molecule_to_tree, tree_to_molecule, tree_to_string
+from mojito.tokenizer import (
+    build_library, 
+    molecule_to_tree, 
+    tree_to_molecule, 
+    tree_to_tokens,
+    molecule_to_tokens,
+    tokens_to_tree,
+    tokens_to_molecule,
+)
+
 from rdkit import Chem
 from rdkit.Chem import AllChem, Draw
 import tqdm
@@ -80,11 +90,8 @@ def smiles_to_pdf(
     return out_pdf
 
 def run():
-    print(len("CN1C=NC2=C1C(=O)N(C(=O)N2C)C"))
-    print(tree_to_string(molecule_to_tree("CN1C=NC2=C1C(=O)N(C(=O)N2C)C")))
-    
     URL = "https://raw.githubusercontent.com/aspuru-guzik-group/chemical_vae/master/models/zinc_properties/250k_rndm_zinc_drugs_clean_3.csv"
-    df = pd.read_csv(URL)["smiles"].tolist()
+    df = pd.read_csv(URL)["smiles"].tolist()[:1000]
     errors = []
     
     
@@ -93,10 +100,9 @@ def run():
             molecule = Chem.MolFromSmiles(smiles)
             Chem.RemoveStereochemistry(molecule)
             smiles = Chem.MolToSmiles(molecule, canonical=True, kekuleSmiles=False)
-            
-            tree = molecule_to_tree(smiles)
-            
-            new_molecule = tree_to_molecule(tree)
+            # tokens = molecule_to_tokens(smiles)
+            # new_molecule = tokens_to_molecule(molecule_to_tokens(smiles))
+            new_molecule = tree_to_molecule(tokens_to_tree(molecule_to_tokens(smiles)))
             new_smiles = Chem.MolToSmiles(new_molecule, canonical=True, kekuleSmiles=False)
 
             if smiles != new_smiles:
