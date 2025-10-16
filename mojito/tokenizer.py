@@ -1,6 +1,7 @@
 from collections import defaultdict
 from functools import reduce  
-
+import token
+import zlib
 from typing import Sequence, Optional
 from rdkit import Chem
 from rdkit import RDLogger
@@ -9,9 +10,6 @@ import tqdm
 from rdkit.Chem import Draw
 RDLogger.DisableLog('rdApp.*') 
 
-
-
-
 def smiles(fn):
     def wrapper(*args, **kwargs):
         if isinstance(args[0], str):
@@ -19,6 +17,12 @@ def smiles(fn):
         return fn(*args, **kwargs)
     wrapper.__doc__ = fn.__doc__
     return wrapper
+
+_hash = lambda fragment: zlib.adler32(
+    Chem.MolToSmiles(fragment, canonical=True).encode("utf-8")
+) if isinstance(fragment, Chem.Mol) else zlib.adler32(
+    fragment.encode("utf-8")
+)
 
 _NON_RING_SINGLE = Chem.MolFromSmarts("[*]-&!@[*]")
 def get_rotatable_bonds(molecule):
@@ -110,11 +114,23 @@ def canonicalize_fragment(fragment):
     modifications: dict
         The mapping from the canonical index to the original atom number.
         
-    """
+    """    
     Chem.Kekulize(fragment, clearAromaticFlags=True)
     canonical = Chem.MolToSmiles(fragment, canonical=True)
+    
+    # # handle the edge cases that would make rdkit unhappy
+    # canonical = (
+    #     canonical
+    #     .replace("[SH]", "S")
+    #     .replace("[PH2]", "[PH3]")
+    # )
+    
+    
     canonical = Chem.MolFromSmiles(canonical)
     Chem.Kekulize(canonical, clearAromaticFlags=True)
+    
+    for atom in canonical.GetAtoms():
+        atom.SetNumRadicalElectrons(0)
     
     if canonical.GetNumAtoms() == 1:
         # single atom fragment
@@ -137,23 +153,9 @@ def canonicalize_fragment(fragment):
             raise ValueError("Canonicalization failed.")
     return canonical
         
-@smiles
-def molecule_to_tree(molecule, score=_hash):
-    """ Generate fragments by cutting rotatable bonds.
-    
-    Parameters
-    ----------
-    molecule: rdkit.Chem.Mol
-        The molecule to be fragmented.
-                
-    """
-    molecule = Chem.RemoveHs(molecule)
-    Chem.RemoveStereochemistry(molecule)
-    Chem.Kekulize(molecule, clearAromaticFlags=True)
-    
+
+def _molecule_to_fragments(molecule):
     # break by bonds
-    for atom in molecule.GetAtoms():
-        atom.SetIntProp("_idx", atom.GetIdx())
     rotatable_bonds = get_rotatable_bonds(molecule) + get_exocyclic_bonds(molecule)
     rotatable_bonds = set([tuple(sorted(bond)) for bond in rotatable_bonds])
     rotatable_bond_idxs = [molecule.GetBondBetweenAtoms(*bond) for bond in rotatable_bonds]
@@ -170,6 +172,41 @@ def molecule_to_tree(molecule, score=_hash):
     
     # canonicalize fragments
     fragments = [canonicalize_fragment(frag) for frag in fragments]
+    
+    return fragments, rotatable_bonds
+
+@smiles
+def molecule_to_fragments(molecule):
+    molecule = Chem.RemoveHs(molecule)
+    Chem.RemoveStereochemistry(molecule)
+    Chem.Kekulize(molecule, clearAromaticFlags=True)
+    for atom in molecule.GetAtoms():
+        atom.SetIntProp("_idx", atom.GetIdx())
+    fragments, _ = _molecule_to_fragments(molecule)
+    # return smiles
+    fragments = [Chem.MolToSmiles(frag, canonical=True) for frag in fragments]
+    return fragments
+        
+@smiles
+def molecule_to_tree(molecule):
+    """ Generate fragments by cutting rotatable bonds.
+    
+    Parameters
+    ----------
+    molecule: rdkit.Chem.Mol
+        The molecule to be fragmented.
+                
+    """
+    molecule = Chem.RemoveHs(molecule)
+    Chem.RemoveStereochemistry(molecule)
+    Chem.Kekulize(molecule, clearAromaticFlags=True)
+    
+    # break by bonds
+    for atom in molecule.GetAtoms():
+        atom.SetIntProp("_idx", atom.GetIdx())
+
+    # call the internal function to get fragments and rotatable bonds
+    fragments, rotatable_bonds = _molecule_to_fragments(molecule)
         
     # build a tree
     tree = nx.DiGraph()
@@ -273,7 +310,6 @@ def tree_to_molecule(tree):
         return None
     
     # loop through edges to add bonds
-    to_delete = []
     for src_global, dst_global, data in tree.edges(data=True):
         src_local = data["src_local"]
         dst_local = data["dst_local"]
@@ -284,22 +320,30 @@ def tree_to_molecule(tree):
             assert src_atom is not None and dst_atom is not None
             molecule.AddBond(src_atom.GetIdx(), dst_atom.GetIdx(), order=Chem.rdchem.BondType(bond_type))
         
-        else:
+    # build fused rings
+    to_delete = []
+    for src_global, dst_global, data in tree.edges(data=True):
+        src_local = data["src_local"]
+        dst_local = data["dst_local"]
+        bond_type = data["bond_type"]
+        
+        if bond_type == 0:
             src_atoms = [find_atom(molecule, src_global, idx) for idx in src_local]
             dst_atoms = [find_atom(molecule, dst_global, idx) for idx in dst_local]
-            
+
             for src_atom, dst_atom in zip(src_atoms, dst_atoms):
                 src_idx, dst_idx = src_atom.GetIdx(), dst_atom.GetIdx()
-                
-                # ensure src_idx < dst_idx
-                if src_idx > dst_idx:
-                    src_idx, dst_idx = dst_idx, src_idx
-                    src_atom, dst_atom = dst_atom, src_atom
                     
                 for neighbors in dst_atom.GetNeighbors():
                     old_bond = molecule.GetMol().GetBondBetweenAtoms(dst_idx, neighbors.GetIdx())
                     if molecule.GetMol().GetBondBetweenAtoms(src_idx, neighbors.GetIdx()) is None:
                         molecule.AddBond(src_idx, neighbors.GetIdx(), order=old_bond.GetBondType())
+                        
+                for neighbors in src_atom.GetNeighbors():
+                    old_bond = molecule.GetMol().GetBondBetweenAtoms(src_idx, neighbors.GetIdx())
+                    if molecule.GetMol().GetBondBetweenAtoms(dst_idx, neighbors.GetIdx()) is None:
+                        molecule.AddBond(dst_idx, neighbors.GetIdx(), order=old_bond.GetBondType())
+                    
                 
                 to_delete.append(dst_idx)
                 
@@ -342,7 +386,6 @@ def tree_to_molecule(tree):
             
         # if there is radicals, attach hydrogens
         num_atoms = molecule.GetNumAtoms()
-        to_remove = []
         for idx in range(num_atoms):
             atom = molecule.GetAtomWithIdx(idx)
             if atom.GetNumRadicalElectrons()==1 and atom.GetFormalCharge()==1:
@@ -420,6 +463,13 @@ def tree_to_tokens(tree, score=_hash):
             
             tokens.append(tree.nodes[dst]["fragment"])
             
+    is_carbon = lambda token: set(token) == {"C"}
+    cursor = 0
+    while cursor < len(tokens) - 1:
+        while is_carbon(tokens[cursor]) and is_carbon(tokens[cursor + 1]):
+            tokens[cursor] = tokens[cursor] + tokens.pop(cursor + 1)
+        cursor += 1
+                        
     tokens = [f"<{token}>" for token in tokens]
     while "BACK" in tokens[-1]:
         tokens.pop()
@@ -431,6 +481,16 @@ def tokens_to_tree(tokens):
     is_back = lambda token: "BACK" in token
     is_fragment = lambda token: not (is_edge(token) or is_back(token))
     
+    # replace carbon chain tokens with multiple C's
+    is_carbon = lambda token: set(token) == {"C"}
+    cursor = 0
+    while cursor < len(tokens):
+        token = tokens[cursor]
+        if is_carbon(token[1:-1]) and len(token) > 3:
+            num_carbons = len(token) - 2
+            tokens = tokens[:cursor] + ["<C>"] * num_carbons + tokens[cursor+1:]
+        cursor += 1
+        
     # insert missing <EDGE 0-0> tokens
     cursor = 0
     while cursor < len(tokens) - 1:
@@ -481,6 +541,9 @@ def tokens_to_tree(tokens):
                 "bond_type": bond_type,
             }
             
+
+            
+
     return tree
     
     
@@ -493,25 +556,19 @@ def tokens_to_molecule(tokens):
 def build_library(molecules):
     library = []
     for smiles in tqdm.tqdm(molecules):
-        old_molecule = Chem.MolFromSmiles(smiles)
-        Chem.RemoveStereochemistry(old_molecule)
-        Chem.Kekulize(old_molecule, clearAromaticFlags=True)
-        old_smiles = Chem.MolToSmiles(old_molecule, canonical=True)
+        try:
+            old_molecule = Chem.MolFromSmiles(smiles)
+            Chem.RemoveStereochemistry(old_molecule)
+            Chem.Kekulize(old_molecule, clearAromaticFlags=True)
+            fragments = molecule_to_fragments(old_molecule)
+            library.extend(fragments)
+        except Exception as e:
+            print(f"Error processing {smiles}: {e}")
         
-        tree = molecule_to_tree(smiles)
-        new_molecule = tree_to_molecule(tree)
-        new_smiles = Chem.MolToSmiles(new_molecule, canonical=True)
-        
-        if old_smiles != new_smiles:
-            print(f"Warning: {old_smiles} != {new_smiles}")
-            # raise ValueError("Molecule reconstruction failed.")
-        
-        
-        fragments = [data["fragment"] for _, data in tree.nodes(data=True)]
-        library.extend(fragments)
-        
-    library = set(library)
-    return library
+    # count unique fragments
+    from collections import Counter
+    counter = dict(Counter(library))
+    return counter
     
         
         

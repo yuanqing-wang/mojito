@@ -1,5 +1,6 @@
 from calendar import c
 from hmac import new
+import token
 import pandas as pd
 from math import ceil
 from mojito.tokenizer import (
@@ -10,6 +11,7 @@ from mojito.tokenizer import (
     molecule_to_tokens,
     tokens_to_tree,
     tokens_to_molecule,
+    molecule_to_fragments,
 )
 
 from rdkit import Chem
@@ -91,17 +93,26 @@ def smiles_to_pdf(
 
 def run():
     URL = "https://raw.githubusercontent.com/aspuru-guzik-group/chemical_vae/master/models/zinc_properties/250k_rndm_zinc_drugs_clean_3.csv"
-    df = pd.read_csv(URL)["smiles"].tolist()[:10000]
+    # df = pd.read_csv(URL)["smiles"].tolist()[:1000]
+    # fragments = build_library(df)
+    # print(len(fragments))
+    # smiles_to_pdf(fragments, out_pdf="original.pdf", mols_per_row=6, subimg_size=(200, 200))
+    
     errors = []
     
+    df = ["[NH3+]C1CCCC1CCN1C(=O)c2cccc3cccc1c23"]
     for smiles in tqdm.tqdm(df):
             smiles = smiles.strip()
             molecule = Chem.MolFromSmiles(smiles)
             Chem.RemoveStereochemistry(molecule)
             smiles = Chem.MolToSmiles(molecule, canonical=True, kekuleSmiles=False)
-            # tokens = molecule_to_tokens(smiles)
-            new_molecule = tree_to_molecule(molecule_to_tree(smiles))
-            # new_molecule = tree_to_molecule(tokens_to_tree(molecule_to_tokens(smiles)))
+            # new_molecule = tree_to_molecule(molecule_to_tree(smiles))
+            tree = molecule_to_tree(smiles)
+            tokens = tree_to_tokens(tree)
+            print(tokens)
+            new_tree = tokens_to_tree(tokens)
+            
+            new_molecule = tree_to_molecule(new_tree)
             new_smiles = Chem.MolToSmiles(new_molecule, canonical=True, kekuleSmiles=False)
 
             if smiles != new_smiles:
