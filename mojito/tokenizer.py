@@ -68,6 +68,20 @@ def break_fused_ring(fragment):
                 rings[j] = []
     rings = [ring for ring in rings if len(ring) > 0]
     
+    # if three rings share atoms, merge them
+    for i in range(len(rings)):
+        for j in range(i + 1, len(rings)):
+            for k in range(j + 1, len(rings)):
+                if (
+                    num_shared_atoms(rings[i], rings[j]) > 0 and
+                    num_shared_atoms(rings[j], rings[k]) > 0 and
+                    num_shared_atoms(rings[i], rings[k]) > 0
+                ):
+                    rings[i] = list(set(rings[i]) | set(rings[j]) | set(rings[k]))
+                    rings[j] = []
+                    rings[k] = []
+    rings = [ring for ring in rings if len(ring) > 0]
+    
     def subgraph(fragment, ring):
         new_fragment = Chem.RWMol()
         mapping = {}
@@ -116,16 +130,7 @@ def canonicalize_fragment(fragment):
         
     """    
     Chem.Kekulize(fragment, clearAromaticFlags=True)
-    canonical = Chem.MolToSmiles(fragment, canonical=True)
-    
-    # # handle the edge cases that would make rdkit unhappy
-    # canonical = (
-    #     canonical
-    #     .replace("[SH]", "S")
-    #     .replace("[PH2]", "[PH3]")
-    # )
-    
-    
+    canonical = Chem.MolToSmiles(fragment, canonical=True)    
     canonical = Chem.MolFromSmiles(canonical)
     Chem.Kekulize(canonical, clearAromaticFlags=True)
     
@@ -188,7 +193,7 @@ def molecule_to_fragments(molecule):
     return fragments
         
 @smiles
-def molecule_to_tree(molecule):
+def molecule_to_tree(molecule, score=_hash):
     """ Generate fragments by cutting rotatable bonds.
     
     Parameters
@@ -207,6 +212,9 @@ def molecule_to_tree(molecule):
 
     # call the internal function to get fragments and rotatable bonds
     fragments, rotatable_bonds = _molecule_to_fragments(molecule)
+    
+    # rank fragments by score
+    fragments = sorted(fragments, key=score, reverse=True)
         
     # build a tree
     tree = nx.DiGraph()
@@ -225,16 +233,15 @@ def molecule_to_tree(molecule):
     # add rotatable and exocyclic bonds as edges
     for old_src, old_dst in rotatable_bonds:
         bond_type = molecule.GetBondBetweenAtoms(old_src, old_dst).GetBondTypeAsDouble()
-        for src_global, src_local in atom_to_fragment[old_src]:                        
-            for dst_global, dst_local in atom_to_fragment[old_dst]:
-            
-                    tree.add_edge(
-                        src_global,
-                        dst_global,
-                        src_local=src_local,
-                        dst_local=dst_local,
-                        bond_type=bond_type,
-                    )
+        src_global, src_local = atom_to_fragment[old_src][0]
+        dst_global, dst_local = atom_to_fragment[old_dst][0]
+        tree.add_edge(
+            src_global,
+            dst_global,
+            src_local=src_local,
+            dst_local=dst_local,
+            bond_type=bond_type,
+        )
                     
     # add edges among fused rings
     for i in range(len(fragments)):
@@ -258,7 +265,6 @@ def molecule_to_tree(molecule):
                     for atom_j in fragments[j].GetAtoms():
                         if atom_j.GetIntProp("_idx") == atom:
                             dst_local.append(atom_j.GetIdx())
-                
                 tree.add_edge(
                     src_global,
                     dst_global,
@@ -301,10 +307,10 @@ def tree_to_molecule(tree):
                 
     # combine the fragment into one molecule
     molecule = reduce(Chem.CombineMols, fragments)
-    molecule = Chem.EditableMol(molecule)
+    molecule = Chem.RWMol(molecule)
     
     def find_atom(molecule, global_idx, local_idx):
-        for atom in molecule.GetMol().GetAtoms():
+        for atom in molecule.GetAtoms():
             if atom.GetIntProp("_global_idx") == global_idx and atom.GetIntProp("_local_idx") == local_idx:
                 return atom
         return None
@@ -321,36 +327,34 @@ def tree_to_molecule(tree):
             molecule.AddBond(src_atom.GetIdx(), dst_atom.GetIdx(), order=Chem.rdchem.BondType(bond_type))
         
     # build fused rings
-    to_delete = []
+    overlapping = nx.Graph()
     for src_global, dst_global, data in tree.edges(data=True):
-        src_local = data["src_local"]
-        dst_local = data["dst_local"]
-        bond_type = data["bond_type"]
-        
-        if bond_type == 0:
+        if data["bond_type"] == 0:
+            src_local = data["src_local"]
+            dst_local = data["dst_local"]
             src_atoms = [find_atom(molecule, src_global, idx) for idx in src_local]
             dst_atoms = [find_atom(molecule, dst_global, idx) for idx in dst_local]
-
-            for src_atom, dst_atom in zip(src_atoms, dst_atoms):
-                src_idx, dst_idx = src_atom.GetIdx(), dst_atom.GetIdx()
-                    
-                for neighbors in dst_atom.GetNeighbors():
-                    old_bond = molecule.GetMol().GetBondBetweenAtoms(dst_idx, neighbors.GetIdx())
-                    if molecule.GetMol().GetBondBetweenAtoms(src_idx, neighbors.GetIdx()) is None:
-                        molecule.AddBond(src_idx, neighbors.GetIdx(), order=old_bond.GetBondType())
-                        
-                for neighbors in src_atom.GetNeighbors():
-                    old_bond = molecule.GetMol().GetBondBetweenAtoms(src_idx, neighbors.GetIdx())
-                    if molecule.GetMol().GetBondBetweenAtoms(dst_idx, neighbors.GetIdx()) is None:
-                        molecule.AddBond(dst_idx, neighbors.GetIdx(), order=old_bond.GetBondType())
-                    
-                
-                to_delete.append(dst_idx)
-                
-    
-    for idx in sorted(set(to_delete), reverse=True):
-        molecule.RemoveAtom(idx)            
             
+            for src_atom, dst_atom in zip(src_atoms, dst_atoms):
+                overlapping.add_edge(src_atom.GetIdx(), dst_atom.GetIdx())
+            
+    to_remove = []        
+    for component in nx.connected_components(overlapping):
+        component = [int(idx) for idx in component]
+        component = sorted(component)
+        base = component[0]
+        for idx in component[1:]:
+            for neighbor in molecule.GetAtomWithIdx(idx).GetNeighbors():
+                neighbor = int(neighbor.GetIdx())
+                old_bond = molecule.GetBondBetweenAtoms(idx, neighbor)
+                if old_bond is not None:
+                    if molecule.GetBondBetweenAtoms(base, neighbor) is None:
+                        molecule.AddBond(base, neighbor, order=old_bond.GetBondType())
+            to_remove.append(idx)
+
+    for idx in sorted(set(to_remove), reverse=True):
+        molecule.RemoveAtom(idx)
+                
     molecule = molecule.GetMol()
     
     def can_sanitize(molecule):
@@ -384,8 +388,9 @@ def tree_to_molecule(tree):
             idx = to_remove.pop()
             molecule.RemoveAtom(idx)
             
-        # if there is radicals, attach hydrogens
+        # if there is radicals, attach or delete hydrogens
         num_atoms = molecule.GetNumAtoms()
+        to_remove = []
         for idx in range(num_atoms):
             atom = molecule.GetAtomWithIdx(idx)
             if atom.GetNumRadicalElectrons()==1 and atom.GetFormalCharge()==1:
@@ -393,6 +398,13 @@ def tree_to_molecule(tree):
                 h.SetNoImplicit(True)
                 h_idx = molecule.AddAtom(h)
                 molecule.AddBond(idx, h_idx, order=Chem.rdchem.BondType.SINGLE)
+                
+            if atom.GetNumRadicalElectrons()==1 and atom.GetFormalCharge()==-1:
+                hydrogen_neighbors = [n.GetIdx() for n in atom.GetNeighbors() if n.GetSymbol() == "H"]
+                to_remove.append(hydrogen_neighbors[0])
+                
+        for atom in sorted(to_remove, reverse=True):
+            molecule.RemoveAtom(atom)
 
         Chem.SanitizeMol(molecule)
         molecule = molecule.GetMol()

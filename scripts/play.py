@@ -19,6 +19,14 @@ from rdkit.Chem import AllChem, Draw
 import tqdm
 from rdkit.Chem import Draw
 
+
+def plot_with_idx(molecule):
+    for atom in molecule.GetAtoms():
+        atom.SetProp("atomNote", str(atom.GetIdx()))
+    img = Draw.MolToImage(molecule, size=(300, 300))
+    img.show()
+    return img
+
 def smiles_to_pdf(
     smiles_list,
     out_pdf="molecules.pdf",
@@ -93,14 +101,17 @@ def smiles_to_pdf(
 
 def run():
     URL = "https://raw.githubusercontent.com/aspuru-guzik-group/chemical_vae/master/models/zinc_properties/250k_rndm_zinc_drugs_clean_3.csv"
-    # df = pd.read_csv(URL)["smiles"].tolist()[:1000]
+    df = pd.read_csv(URL)["smiles"].tolist()[:10000]
     # fragments = build_library(df)
     # print(len(fragments))
     # smiles_to_pdf(fragments, out_pdf="original.pdf", mols_per_row=6, subimg_size=(200, 200))
     
     errors = []
     
-    df = ["[NH3+]C1CCCC1CCN1C(=O)c2cccc3cccc1c23"]
+    # df = ["Cc1ccc([C@@]23CCC(=O)N2CCC[NH2+]3)cc1"]
+        
+    # plot_with_idx(molecule)
+
     for smiles in tqdm.tqdm(df):
             smiles = smiles.strip()
             molecule = Chem.MolFromSmiles(smiles)
@@ -108,8 +119,9 @@ def run():
             smiles = Chem.MolToSmiles(molecule, canonical=True, kekuleSmiles=False)
             # new_molecule = tree_to_molecule(molecule_to_tree(smiles))
             tree = molecule_to_tree(smiles)
+            
             tokens = tree_to_tokens(tree)
-            print(tokens)
+            # print(tokens)
             new_tree = tokens_to_tree(tokens)
             
             new_molecule = tree_to_molecule(new_tree)
