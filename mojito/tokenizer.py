@@ -388,11 +388,16 @@ def tree_to_molecule(tree):
             idx = to_remove.pop()
             molecule.RemoveAtom(idx)
             
-        # if there is radicals, attach or delete hydrogens
-        num_atoms = molecule.GetNumAtoms()
+    # if there is radicals, attach or delete hydrogens
+    num_atoms = molecule.GetNumAtoms()
+    if any(atom.GetNumRadicalElectrons() > 0 for atom in molecule.GetAtoms()):
+        molecule = Chem.AddHs(molecule)
+        molecule = Chem.RWMol(molecule)
+    
         to_remove = []
         for idx in range(num_atoms):
             atom = molecule.GetAtomWithIdx(idx)
+                
             if atom.GetNumRadicalElectrons()==1 and atom.GetFormalCharge()==1:
                 h = Chem.Atom(1)
                 h.SetNoImplicit(True)
@@ -400,16 +405,17 @@ def tree_to_molecule(tree):
                 molecule.AddBond(idx, h_idx, order=Chem.rdchem.BondType.SINGLE)
                 
             if atom.GetNumRadicalElectrons()==1 and atom.GetFormalCharge()==-1:
+                atom.SetNoImplicit(True)
                 hydrogen_neighbors = [n.GetIdx() for n in atom.GetNeighbors() if n.GetSymbol() == "H"]
                 to_remove.append(hydrogen_neighbors[0])
+        
+        for idx in sorted(set(to_remove), reverse=True):
+            molecule.RemoveAtom(idx)
                 
-        for atom in sorted(to_remove, reverse=True):
-            molecule.RemoveAtom(atom)
-
-        Chem.SanitizeMol(molecule)
         molecule = molecule.GetMol()
-        molecule = Chem.RemoveHs(molecule)
-                    
+        Chem.SanitizeMol(molecule) 
+        
+    molecule = Chem.RemoveHs(molecule)
     return molecule
 
 def tree_to_tokens(tree, score=_hash):

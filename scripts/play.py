@@ -101,14 +101,14 @@ def smiles_to_pdf(
 
 def run():
     URL = "https://raw.githubusercontent.com/aspuru-guzik-group/chemical_vae/master/models/zinc_properties/250k_rndm_zinc_drugs_clean_3.csv"
-    df = pd.read_csv(URL)["smiles"].tolist()[:10000]
+    df = pd.read_csv(URL)["smiles"].tolist()# [:10000]
     # fragments = build_library(df)
     # print(len(fragments))
     # smiles_to_pdf(fragments, out_pdf="original.pdf", mols_per_row=6, subimg_size=(200, 200))
     
     errors = []
     
-    # df = ["Cc1ccc([C@@]23CCC(=O)N2CCC[NH2+]3)cc1"]
+    # df = ["C=CCn1c(SCc2nnc([S-])n2-c2ccccc2)nnc1-c1ccccc1"]
         
     # plot_with_idx(molecule)
 
