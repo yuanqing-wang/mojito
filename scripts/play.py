@@ -3,7 +3,7 @@ from hmac import new
 import token
 import pandas as pd
 from math import ceil
-from mojito.tokenizer import (
+from mojito.utils import (
     build_library, 
     molecule_to_tree, 
     tree_to_molecule, 
@@ -113,6 +113,7 @@ def run():
     # plot_with_idx(molecule)
 
     for smiles in tqdm.tqdm(df):
+        try:
             smiles = smiles.strip()
             molecule = Chem.MolFromSmiles(smiles)
             Chem.RemoveStereochemistry(molecule)
@@ -129,6 +130,10 @@ def run():
 
             if smiles != new_smiles:
                 errors.append((smiles, new_smiles))
+                print((smiles, new_smiles))
+        except:
+            errors.append((smiles, "error"))
+            print((smiles, "error"))
 
     for i, (s1, s2) in enumerate(errors):
         print(f"{i}: {s1} -> {s2}")

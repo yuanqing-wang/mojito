@@ -1,5 +1,5 @@
 import pandas as pd
-from mojito.tokenizer import build_library
+from mojito.utils import build_library
 
 def run():
     URL = "https://raw.githubusercontent.com/aspuru-guzik-group/chemical_vae/master/models/zinc_properties/250k_rndm_zinc_drugs_clean_3.csv"
