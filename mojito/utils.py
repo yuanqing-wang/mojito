@@ -10,6 +10,15 @@ import tqdm
 from rdkit.Chem import Draw
 RDLogger.DisableLog('rdApp.*') 
 
+# load library
+import json
+LIBRARY = json.load(
+    open(
+        __file__.replace("utils.py", "library.json"), "r"
+    )
+)
+ABUNDANCE = lambda fragment: ABUNDANCE(Chem.MolToSmiles(fragment, canonical=True)) if isinstance(fragment, Chem.Mol) else LIBRARY.get(fragment, 0)
+
 def smiles(fn):
     def wrapper(*args, **kwargs):
         if isinstance(args[0], str):
@@ -193,7 +202,7 @@ def molecule_to_fragments(molecule):
     return fragments
         
 @smiles
-def molecule_to_tree(molecule, score=_hash):
+def molecule_to_tree(molecule, score=ABUNDANCE):
     """ Generate fragments by cutting rotatable bonds.
     
     Parameters
@@ -214,7 +223,7 @@ def molecule_to_tree(molecule, score=_hash):
     fragments, rotatable_bonds = _molecule_to_fragments(molecule)
     
     # rank fragments by score
-    fragments = sorted(fragments, key=score, reverse=True)
+    fragments = sorted(fragments, key=score)
         
     # build a tree
     tree = nx.DiGraph()
@@ -418,7 +427,7 @@ def tree_to_molecule(tree):
     molecule = Chem.RemoveHs(molecule)
     return molecule
 
-def tree_to_tokens(tree, score=_hash):
+def tree_to_tokens(tree, score=ABUNDANCE):
     ordered_edges = [(u, v) for u, v in tree.edges()]
     # tree = tree.to_directed()
     tree = nx.Graph(tree)  # make it undirected
@@ -434,7 +443,7 @@ def tree_to_tokens(tree, score=_hash):
     dfs = nx.dfs_labeled_edges(
         tree, 
         source=source,
-        sort_neighbors=lambda neighbors: sorted(neighbors, key=lambda idx: tree.nodes[idx]["score"], reverse=True),
+        sort_neighbors=lambda neighbors: sorted(neighbors, key=lambda idx: tree.nodes[idx]["score"]),
     )
 
     for src, dst, direction in dfs:
