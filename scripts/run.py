@@ -1,70 +1,83 @@
-import torch
-import pandas as pd
+import re
+from mojito.tokenizer import preprocess, add
+from transformers import AutoModelForCausalLM, AutoTokenizer, Trainer, TrainingArguments
+from peft import LoraConfig, get_peft_model
+from datasets import load_dataset
 
-import wandb
-wandb.login(
-    key="58466296c2de2fdd61d262115503afdf302441b7",
-)
-from datetime import datetime
-name = "control" + datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
-wandb.init(
-    project="mojito",
-    name=name,
-)
-
-
-def run():
-    from mojito import Encoder, Decoder, Tokenizer, Quantizer
-    from mojito.data import GraphDataset, GraphSampler
+def run(args):
+    model = AutoModelForCausalLM.from_pretrained(args.model)
+    tokenizer = AutoTokenizer.from_pretrained(args.model)
+    add(tokenizer)    
+    model.resize_token_embeddings(len(tokenizer))
     
-    URL = "https://raw.githubusercontent.com/aspuru-guzik-group/chemical_vae/master/models/zinc_properties/250k_rndm_zinc_drugs_clean_3.csv"
-    # URL = "250k_rndm_zinc_drugs_clean_3.csv"
-    df = pd.read_csv(URL)
-    
-    # df = pd.read_csv("250k_rndm_zinc_drugs_clean_3.csv", nrows=100)
-    smiles = df["smiles"].tolist()
-    dataset = GraphDataset.from_smiles(smiles, power=8)
-    sampler = GraphSampler(dataset, batch_size=8, shuffle=True)
-    dataloader = torch.utils.data.DataLoader(
-        dataset,
-        batch_sampler=sampler,
+    lora_config = LoraConfig(
+        r=8,
+        lora_alpha=32,
+        target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "up_proj", "down_proj"],
+        lora_dropout=0.1,
+        bias="none",
+        task_type="CAUSAL_LM",
     )
+    model = get_peft_model(model, lora_config)
+    
+    
+    def tokenize(prompt):
+        result = tokenizer(prompt)
+        result["labels"] = result["input_ids"].copy()
+        return result
 
-    tokenizer = Tokenizer(
-        encoder=Encoder(119, 128),
-        decoder=Decoder(128, 128, num_classes=119),
-        quantizer=Quantizer(num_classes=10240, hidden_features=128)
+    def get_data(point):
+        input_text = point['input']
+        output_text = point['output']
+        prompt = f"### Input:\n{input_text}\n\n### Response:\n{output_text}\n"
+        prompt = re.sub(r'(<SMILES>[^<;]*);([^<]*</SMILES>)', r'\1</SMILES> <SMILES>\2', prompt)
+        
+        try:
+            prompt = preprocess(prompt)
+        except Exception as e:
+            print(f"Error processing prompt: {e}")
+        return tokenize(prompt)
+        
+    tasks = [
+        'property_prediction-esol',
+        'property_prediction-lipo',
+        'property_prediction-bbbp',
+        'property_prediction-clintox',
+        'property_prediction-hiv',
+        'property_prediction-sider',
+    ]
+
+    dataset = load_dataset(
+        'osunlp/SMolInstruct', 
+        tasks=tasks, 
+        trust_remote_code=True,
+        split="train",
+        use_first=100,
     )
     
-    if torch.cuda.is_available():
-        tokenizer = tokenizer.cuda()
+    dataset = dataset.shuffle().map(get_data)
     
-    optimizer = torch.optim.Adam(tokenizer.parameters(), lr=1e-3, weight_decay=1e-5)
-        
-    for idx in range(1000000):
-        t = min(1.0, float(idx) / 10000)
-        for a, h in dataloader:
-            optimizer.zero_grad()
-            if torch.cuda.is_available():
-                a, h = a.to("cuda"), h.to("cuda")
-            (
-                loss_quantization,
-                loss_embedding,
-                loss_structure,
-                accuracy_embedding,
-                accuracy_structure,    
-            ) = tokenizer.loss(a, h, t)
-            loss = loss_structure + loss_embedding + loss_quantization
-            loss.backward()
-            optimizer.step()
-            
-            wandb.log({
-                # "loss_quantization": loss_quantization.item(),
-                "loss_embedding": loss_embedding.item(),
-                "loss_structure": loss_structure.item(),
-                "accuracy_embedding": accuracy_embedding.item(),
-                "accuracy_structure": accuracy_structure.item(),
-            })
-        
+    # define the training arguments
+    training_args = TrainingArguments(
+        output_dir="./results",
+        per_device_train_batch_size=4,
+        max_steps=10000,
+        save_total_limit=2,
+        # fp16=True,
+    )
+    
+    trainer = Trainer(
+        model=model,
+        train_dataset=dataset,
+        args=training_args,
+    )
+    
+    trainer.train()
+    
+
 if __name__ == "__main__":
-    run()
+    from argparse import ArgumentParser
+    parser = ArgumentParser()
+    parser.add_argument("--model", type=str, default="Qwen/Qwen3-0.6B")
+    args = parser.parse_args()
+    run(args)

@@ -579,6 +579,58 @@ def molecule_to_tokens(molecule):
 
 def tokens_to_molecule(tokens):
     return tree_to_molecule(tokens_to_tree(tokens))
+
+def molecule_to_string(molecule):
+    return " " + " ".join(molecule_to_tokens(molecule)) + " "
+
+def string_to_molecule(string):
+    tokens = string.split(" ")
+    return tokens_to_molecule(tokens)
+
+
+import re
+SMILES_REGEX = r"((?:\[[^\]]+]|Br?|Cl?|N|O|S|P|F|I|b|c|n|o|s|p|\(|\)|\.|=|#|\+|\\|\/|:|@|\?|>|\*|\$|%[0-9]{2}|[0-9])+)"
+PATTERN = re.compile(SMILES_REGEX)
+def _preprocess_without_tags(string, min_length=3):
+    def repl(m):
+        match_str = m.group(0)
+        if len(match_str) > min_length:
+            return molecule_to_string(match_str)
+        else:
+            return match_str
+    return re.sub(PATTERN, repl, string)
+    
+
+
+TAG_REGEX = r"(<SMILES>(.*?)</SMILES>)"
+TAG_PATTERN = re.compile(TAG_REGEX)
+def _preprocess_with_tags(string, tag_start="<SMILES>", tag_end="</SMILES>"):
+    # write a function to replace everything inside the tags
+    def replace_tag(match):
+        smiles = match.group(2)
+        token_string = molecule_to_string(smiles)
+        return f"{tag_start}{token_string}{tag_end}"
+    
+    return re.sub(
+        TAG_PATTERN,
+        replace_tag,
+        string,
+    )
+
+def preprocess(
+    string,
+    tag_start: Optional[str] = "<SMILES>",
+    tag_end: Optional[str] = "</SMILES>",
+):
+    if tag_start is not None and tag_end is not None and tag_start in string and tag_end in string:
+        return _preprocess_with_tags(
+            string,
+            tag_start=tag_start,
+            tag_end=tag_end,
+        )
+    else:
+        return _preprocess_without_tags(string)
+
     
 def build_library(molecules):
     library = []
@@ -597,6 +649,29 @@ def build_library(molecules):
     counter = dict(Counter(library))
     return counter
     
+    
+INF = 10
+CARBON_CHAINS = ["C" * idx for idx in range(1, INF)]
+BONDS = [
+    f"EDGE {idx0}{bond_type}{idx1}"
+    for idx0 in range(1, INF)
+    for bond_type in ["-", "=", "#"]
+    for idx1 in range(1, INF)
+]
+SHARED_BONDS = [
+    f"EDGE [{idx0},{idx1}]:[{idx2},{idx3}]"
+    for idx0 in range(1, INF)
+    for idx1 in range(1, INF)
+    for idx2 in range(1, INF)
+    for idx3 in range(1, INF)
+    if idx0 != idx2 and idx1 != idx3
+]
+SPIRO_BONDS = [
+    f"EDGE [{idx}]:[{idx}]"
+    for idx in range(1, INF)
+]
+BACKS = [f"BACK {idx}" for idx in range(1, INF)]
+ADDITIONAL_TOKENS = CARBON_CHAINS + BONDS + SHARED_BONDS + SHARED_BONDS + BACKS
         
         
         

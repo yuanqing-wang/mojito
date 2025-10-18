@@ -131,7 +131,10 @@ def run():
             if smiles != new_smiles:
                 errors.append((smiles, new_smiles))
                 print((smiles, new_smiles))
-        except:
+        except KeyboardInterrupt:
+            print("Interrupted by user.")
+            break
+        except Exception:
             errors.append((smiles, "error"))
             print((smiles, "error"))
 

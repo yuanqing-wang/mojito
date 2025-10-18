@@ -1,4 +1,11 @@
-from transformers import PreTrainedTokenizerFast
+from locale import normalize
+from .utils import LIBRARY, preprocess, ADDITIONAL_TOKENS
 
-class MojitoTokenizer(PreTrainedTokenizerFast):
-    pass
+def add(tokenizer):
+    tokenizer.add_tokens(
+        [f"<{key}>" for key in list(LIBRARY.keys()) + ADDITIONAL_TOKENS],
+    )
+        
+        
+
+    
