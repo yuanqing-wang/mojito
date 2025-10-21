@@ -61,10 +61,10 @@ def run(args):
     # define the training arguments
     training_args = TrainingArguments(
         output_dir="./results",
-        per_device_train_batch_size=4,
+        per_device_train_batch_size=1,
         max_steps=10000,
         save_total_limit=2,
-        # fp16=True,
+        fp16=True,
     )
     
     trainer = Trainer(
