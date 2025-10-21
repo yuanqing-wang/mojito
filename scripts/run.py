@@ -4,6 +4,25 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, Trainer, TrainingA
 from peft import LoraConfig, get_peft_model
 from datasets import load_dataset
 
+def tokenize(prompt, tokenizer):
+    result = tokenizer(prompt, padding="max_length", max_length=1024)
+    result["labels"] = result["input_ids"].copy()
+    return result
+
+def get_data(point, tokenizer):
+    input_text = point['input']
+    output_text = point['output']
+    prompt = f"### Input:\n{input_text}\n\n### Response:\n{output_text}\n"
+    prompt = re.sub(r'(<SMILES>[^<;]*);([^<]*</SMILES>)', r'\1</SMILES> <SMILES>\2', prompt)
+    
+    try:
+        prompt = preprocess(prompt)
+        prompt = prompt.replace("SMILES>", "MOJITO>")
+    except Exception as e:
+        print(f"Error processing prompt: {e}")
+    return tokenize(prompt, tokenizer)
+
+
 def run(args):
     model = AutoModelForCausalLM.from_pretrained(args.model)
     tokenizer = AutoTokenizer.from_pretrained(args.model)
@@ -19,25 +38,7 @@ def run(args):
         task_type="CAUSAL_LM",
     )
     model = get_peft_model(model, lora_config)
-    
-    
-    def tokenize(prompt):
-        result = tokenizer(prompt, padding="max_length", max_length=1024)
-        result["labels"] = result["input_ids"].copy()
-        return result
 
-    def get_data(point):
-        input_text = point['input']
-        output_text = point['output']
-        prompt = f"### Input:\n{input_text}\n\n### Response:\n{output_text}\n"
-        prompt = re.sub(r'(<SMILES>[^<;]*);([^<]*</SMILES>)', r'\1</SMILES> <SMILES>\2', prompt)
-        
-        try:
-            prompt = preprocess(prompt)
-            prompt = prompt.replace("SMILES>", "MOJITO>")
-        except Exception as e:
-            print(f"Error processing prompt: {e}")
-        return tokenize(prompt)
         
     tasks = [
         'property_prediction-esol',
@@ -56,7 +57,9 @@ def run(args):
         use_first=100,
     )
     
-    dataset = dataset.shuffle().map(get_data)
+    dataset = dataset.shuffle().map(
+        lambda x: get_data(x, tokenizer),
+    )
     
     # define the training arguments
     training_args = TrainingArguments(
