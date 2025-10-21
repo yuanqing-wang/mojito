@@ -1,19 +1,24 @@
 import torch
 import pandas as pd
+from peft import PeftConfig, PeftModel
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from datasets import Dataset
-from run import get_data
+from run import get_data, add
 
 def run():
-    model_name = "results/checkpoint-10000"
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    ckpt = "results/checkpoint-10000/"
+    peft_cfg = PeftConfig.from_pretrained(ckpt)
+    base = peft_cfg.base_model_name_or_path
+    tokenizer = AutoTokenizer.from_pretrained(base)
+    add(tokenizer)
 
     # Evaluate the model
-    model = AutoModelForCausalLM.from_pretrained(model_name)
+    model = AutoModelForCausalLM.from_pretrained(base)
     model.resize_token_embeddings(len(tokenizer))
+    model = PeftModel.from_pretrained(model, ckpt) 
 
-    tasks = [
+    tasks= [
         'property_prediction-esol',
         'property_prediction-lipo',
         'property_prediction-bbbp',
@@ -30,11 +35,8 @@ def run():
         use_first=100,
     )
 
-    dataset = dataset.map(
-        lambda x: get_data(x, tokenizer),
-    )
-
-    point = next(iter(dataset))
+    point = dataset[0]
+    point = get_data(point, tokenizer=tokenizer)
 
     # Generate output using the model
     with torch.no_grad():
