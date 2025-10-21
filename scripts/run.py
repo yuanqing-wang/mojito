@@ -22,7 +22,7 @@ def run(args):
     
     
     def tokenize(prompt):
-        result = tokenizer(prompt, padding="max_length")
+        result = tokenizer(prompt, padding="max_length", max_length=1024)
         result["labels"] = result["input_ids"].copy()
         return result
 
