@@ -22,7 +22,7 @@ def run(args):
     
     
     def tokenize(prompt):
-        result = tokenizer(prompt)
+        result = tokenizer(prompt, padding="max_length")
         result["labels"] = result["input_ids"].copy()
         return result
 
@@ -34,6 +34,7 @@ def run(args):
         
         try:
             prompt = preprocess(prompt)
+            prompt = prompt.replace("SMILES>", "MOJITO>")
         except Exception as e:
             print(f"Error processing prompt: {e}")
         return tokenize(prompt)
