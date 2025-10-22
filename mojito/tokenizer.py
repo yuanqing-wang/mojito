@@ -7,7 +7,12 @@ def add(tokenizer):
     )
     
     tokenizer.add_special_tokens(
-        ["<MOJITO>", "</MOJITO>"]
+        {
+            "additional_special_tokens": [
+                "<MOJITO>",
+                "</MOJITO>",
+            ]
+        }
     )
         
         
