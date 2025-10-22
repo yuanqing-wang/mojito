@@ -25,6 +25,15 @@ def get_data(point, tokenizer):
     point["preprocessed_prompt"] = prompt
     return tokenize(prompt, tokenizer)
 
+def extract_number(string):
+    match = re.search(r"<NUMBER>(.*?)</NUMBER>", string)
+    if match:
+        try:
+            return float(match.group(1))
+        except ValueError:
+            return None
+    return None
+
 def run():
     ckpt = "results/checkpoint-63000/"
     peft_cfg = PeftConfig.from_pretrained(ckpt)
@@ -39,11 +48,11 @@ def run():
 
     tasks= [
         'property_prediction-esol',
-        'property_prediction-lipo',
-        'property_prediction-bbbp',
-        'property_prediction-clintox',
-        'property_prediction-hiv',
-        'property_prediction-sider',
+        # 'property_prediction-lipo',
+        # 'property_prediction-bbbp',
+        # 'property_prediction-clintox',
+        # 'property_prediction-hiv',
+        # 'property_prediction-sider',
     ]
 
     dataset = load_dataset(
@@ -53,13 +62,17 @@ def run():
         split="train",
         use_first=100,
     )
+    
+    y = []
+    y_hat = []
 
     for point in dataset:
+        y.append(extract_number(point['output']))
         point = get_data(point, tokenizer=tokenizer)
 
         # Generate output using the model
         with torch.no_grad():
-            outputs = model.generate(
+            output = model.generate(
                 point["input_ids"],
                 max_new_tokens=128,
                 do_sample=False,
@@ -68,8 +81,11 @@ def run():
             )[:, point["input_ids"].shape[-1]:]
 
         # Decode the generated output
-        generated_output = tokenizer.batch_decode(outputs, skip_special_tokens=True)
-        print("Generated Output:", generated_output)
+        output = tokenizer.batch_decode(output, skip_special_tokens=True)
+        y_hat.append(extract_number(output[0]))
+    
+    import pdb; pdb.set_trace()
+        
 
 
 if __name__ == "__main__":
