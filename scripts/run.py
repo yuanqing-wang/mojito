@@ -5,8 +5,8 @@ from peft import LoraConfig, get_peft_model
 from datasets import load_dataset
 
 def tokenize(prompt, tokenizer):
-    result = tokenizer(prompt, padding="max_length", max_length=1024, return_tensors="pt")
-    result["labels"] = result["input_ids"].clone()
+    result = tokenizer(prompt, padding="max_length", max_length=1024)
+    result["labels"] = result["input_ids"].copy() # .clone()
     return result
 
 def get_data(point, tokenizer):
