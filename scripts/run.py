@@ -12,14 +12,14 @@ def tokenize(prompt, tokenizer):
 def get_data(point, tokenizer):
     input_text = point['input']
     output_text = point['output']
-    prompt = f"### Input:\n{input_text}\n\n### Response:\n{output_text}\n"
-    prompt = re.sub(r'(<SMILES>[^<;]*);([^<]*</SMILES>)', r'\1</SMILES> <SMILES>\2', prompt)
-    
+    prompt = f"[INST]{input_text}[/INST]{output_text}"
+    prompt = re.sub(r'(<SMILES>[^<;]*);([^<]*</SMILES>)', r'\1</SMILES> <SMILES>\2', prompt)    
     try:
         prompt = preprocess(prompt)
         prompt = prompt.replace("SMILES>", "MOJITO>")
     except Exception as e:
-        print(f"Error processing prompt: {e}")
+        print(f"Error processing prompt: {prompt}")
+    point["preprocessed_prompt"] = prompt
     return tokenize(prompt, tokenizer)
 
 
@@ -54,18 +54,19 @@ def run(args):
         tasks=tasks, 
         trust_remote_code=True,
         split="train",
-        use_first=100,
+        # use_first=100,
     )
     
     dataset = dataset.shuffle().map(
         lambda x: get_data(x, tokenizer),
     )
     
+    
     # define the training arguments
     training_args = TrainingArguments(
         output_dir="./results",
         per_device_train_batch_size=1,
-        max_steps=10000,
+        max_steps=int(1e6),
         save_total_limit=2,
         fp16=True,
     )

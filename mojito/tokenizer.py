@@ -5,6 +5,10 @@ def add(tokenizer):
     tokenizer.add_tokens(
         [f"<{key}>" for key in list(LIBRARY.keys()) + ADDITIONAL_TOKENS],
     )
+    
+    tokenizer.add_special_tokens(
+        ["<MOJITO>", "</MOJITO>"]
+    )
         
         
 
