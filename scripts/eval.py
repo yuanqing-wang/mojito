@@ -9,7 +9,7 @@ import re
 from mojito.tokenizer import preprocess
 
 def tokenize(prompt, tokenizer):
-    result = tokenizer(prompt, padding="max_length", max_length=1024, return_tensors="pt")
+    result = tokenizer(prompt, truncation=True, return_tensors="pt")
     result["labels"] = result["input_ids"].clone()
     return result
 
@@ -26,7 +26,7 @@ def get_data(point, tokenizer):
     return tokenize(prompt, tokenizer)
 
 def run():
-    ckpt = "results/"
+    ckpt = "results/checkpoint-63000/"
     peft_cfg = PeftConfig.from_pretrained(ckpt)
     base = peft_cfg.base_model_name_or_path
     tokenizer = AutoTokenizer.from_pretrained(base)
@@ -54,21 +54,22 @@ def run():
         use_first=100,
     )
 
-    point = dataset[0]
-    point = get_data(point, tokenizer=tokenizer)
+    for point in dataset:
+        point = get_data(point, tokenizer=tokenizer)
 
-    # Generate output using the model
-    with torch.no_grad():
-        outputs = model.generate(
-            point["input_ids"],
-            max_new_tokens=500,
-            do_sample=True,
-            pad_token_id=tokenizer.eos_token_id
-        )
+        # Generate output using the model
+        with torch.no_grad():
+            outputs = model.generate(
+                point["input_ids"],
+                max_new_tokens=128,
+                do_sample=False,
+                pad_token_id=tokenizer.pad_token_id,
+                eos_token_id=tokenizer.eos_token_id,
+            )[:, point["input_ids"].shape[-1]:]
 
-    # Decode the generated output
-    generated_output = tokenizer.batch_decode(outputs, skip_special_tokens=True)
-    print("Generated Output:", generated_output)
+        # Decode the generated output
+        generated_output = tokenizer.batch_decode(outputs, skip_special_tokens=True)
+        print("Generated Output:", generated_output)
 
 
 if __name__ == "__main__":
