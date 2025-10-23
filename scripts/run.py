@@ -66,7 +66,7 @@ def run(args):
     training_args = TrainingArguments(
         output_dir="./results",
         per_device_train_batch_size=1,
-        max_steps=int(1e6),
+        max_steps=int(1e7),
         save_total_limit=2,
         fp16=True,
     )

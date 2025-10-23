@@ -35,14 +35,14 @@ def extract_number(string):
     return None
 
 def run():
-    ckpt = "results/checkpoint-63000/"
+    ckpt = "results/checkpoint-83000/"
     peft_cfg = PeftConfig.from_pretrained(ckpt)
     base = peft_cfg.base_model_name_or_path
     tokenizer = AutoTokenizer.from_pretrained(base)
     add(tokenizer)
 
     # Evaluate the model
-    model = AutoModelForCausalLM.from_pretrained(base)
+    model = AutoModelForCausalLM.from_pretrained(base, device_map="cuda")
     model.resize_token_embeddings(len(tokenizer))
     model = PeftModel.from_pretrained(model, ckpt) 
 
@@ -67,8 +67,10 @@ def run():
     y_hat = []
 
     for point in dataset:
-        y.append(extract_number(point['output']))
+        _y = extract_number(point['output'])
         point = get_data(point, tokenizer=tokenizer)
+
+        point = {k: v.cuda() for k, v in point.items()}
 
         # Generate output using the model
         with torch.no_grad():
@@ -82,7 +84,10 @@ def run():
 
         # Decode the generated output
         output = tokenizer.batch_decode(output, skip_special_tokens=True)
-        y_hat.append(extract_number(output[0]))
+        _y_hat = extract_number(output[0])
+        y.append(_y)
+        y_hat.append(_y_hat)
+        print(_y, _y_hat)
     
     import pdb; pdb.set_trace()
         
