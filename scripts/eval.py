@@ -35,7 +35,7 @@ def extract_number(string):
     return None
 
 def run():
-    ckpt = "results/checkpoint-83000/"
+    ckpt = "results/checkpoint-85000/"
     peft_cfg = PeftConfig.from_pretrained(ckpt)
     base = peft_cfg.base_model_name_or_path
     tokenizer = AutoTokenizer.from_pretrained(base)

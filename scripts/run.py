@@ -5,7 +5,7 @@ from peft import LoraConfig, get_peft_model
 from datasets import load_dataset
 
 def tokenize(prompt, tokenizer):
-    result = tokenizer(prompt, padding="max_length", max_length=1024)
+    result = tokenizer(prompt)
     result["labels"] = result["input_ids"].copy() # .clone()
     return result
 
@@ -25,19 +25,23 @@ def get_data(point, tokenizer):
 
 def run(args):
     model = AutoModelForCausalLM.from_pretrained(args.model)
+    print(model)
     tokenizer = AutoTokenizer.from_pretrained(args.model)
     add(tokenizer)    
     model.resize_token_embeddings(len(tokenizer))
-    
+    print(sum(p.numel() for p in model.parameters() if p.requires_grad))
+
     lora_config = LoraConfig(
         r=8,
-        lora_alpha=32,
-        target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "up_proj", "down_proj"],
+        lora_alpha=16,
+        # target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "up_proj", "down_proj"],
+        target_modules=["embed_tokens", "q_proj", "k_proj"],
         lora_dropout=0.1,
         bias="none",
         task_type="CAUSAL_LM",
     )
     model = get_peft_model(model, lora_config)
+    print(sum(p.numel() for p in model.parameters() if p.requires_grad))
 
         
     tasks = [
