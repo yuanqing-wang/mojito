@@ -75,6 +75,8 @@ def run(args):
         fp16=True,
     )
     
+    tokenizer.save_pretrained(training_args.output_dir)
+    
     trainer = Trainer(
         model=model,
         train_dataset=dataset,
