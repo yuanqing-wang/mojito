@@ -5,7 +5,7 @@ from peft import LoraConfig, get_peft_model
 from datasets import load_dataset
 
 def tokenize(prompt, tokenizer):
-    result = tokenizer(prompt)
+    result = tokenizer(prompt, padding="max_length", max_length=128, truncation=True)
     result["labels"] = result["input_ids"].copy() # .clone()
     return result
 
@@ -69,7 +69,7 @@ def run(args):
     # define the training arguments
     training_args = TrainingArguments(
         output_dir="./results",
-        per_device_train_batch_size=1,
+        per_device_train_batch_size=4,
         num_train_epochs=100,
         save_total_limit=2,
         fp16=True,

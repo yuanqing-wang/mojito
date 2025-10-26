@@ -23,6 +23,7 @@ def get_data(point, tokenizer):
     except Exception as e:
         print(f"Error processing prompt: {prompt}")
     point["preprocessed_prompt"] = prompt
+    print(prompt)
     return tokenize(prompt, tokenizer)
 
 def extract_number(string):
@@ -35,7 +36,7 @@ def extract_number(string):
     return None
 
 def run():
-    ckpt = "results/checkpoint-85000/"
+    ckpt = "results/checkpoint-81500/"
     peft_cfg = PeftConfig.from_pretrained(ckpt)
     base = peft_cfg.base_model_name_or_path
     tokenizer = AutoTokenizer.from_pretrained(base)
@@ -68,6 +69,7 @@ def run():
 
     for point in dataset:
         _y = extract_number(point['output'])
+
         point = get_data(point, tokenizer=tokenizer)
 
         point = {k: v.cuda() for k, v in point.items()}
@@ -84,6 +86,7 @@ def run():
 
         # Decode the generated output
         output = tokenizer.batch_decode(output, skip_special_tokens=True)
+        print(output)
         _y_hat = extract_number(output[0])
         y.append(_y)
         y_hat.append(_y_hat)
