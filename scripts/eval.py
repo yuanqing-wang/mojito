@@ -36,11 +36,12 @@ def extract_number(string):
     return None
 
 def run():
-    ckpt = "results/checkpoint-81500/"
+    ckpt = "./results/checkpoint-81500/"
     peft_cfg = PeftConfig.from_pretrained(ckpt)
     base = peft_cfg.base_model_name_or_path
-    tokenizer = AutoTokenizer.from_pretrained(base)
-    add(tokenizer)
+    tokenizer = AutoTokenizer.from_pretrained("./results/")
+
+    # import pdb; pdb.set_trace()
 
     # Evaluate the model
     model = AutoModelForCausalLM.from_pretrained(base, device_map="cuda")

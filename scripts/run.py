@@ -46,11 +46,11 @@ def run(args):
         
     tasks = [
         'property_prediction-esol',
-        'property_prediction-lipo',
-        'property_prediction-bbbp',
-        'property_prediction-clintox',
-        'property_prediction-hiv',
-        'property_prediction-sider',
+        # 'property_prediction-lipo',
+        # 'property_prediction-bbbp',
+        # 'property_prediction-clintox',
+        # 'property_prediction-hiv',
+        # 'property_prediction-sider',
     ]
 
     dataset = load_dataset(
