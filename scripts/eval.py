@@ -36,10 +36,10 @@ def extract_number(string):
     return None
 
 def run():
-    ckpt = "./results/checkpoint-81500/"
+    ckpt = "./results-large/checkpoint-221000/"
     peft_cfg = PeftConfig.from_pretrained(ckpt)
     base = peft_cfg.base_model_name_or_path
-    tokenizer = AutoTokenizer.from_pretrained("./results/")
+    tokenizer = AutoTokenizer.from_pretrained("./results-large/")
 
     # import pdb; pdb.set_trace()
 
@@ -61,7 +61,7 @@ def run():
         'osunlp/SMolInstruct', 
         tasks=tasks, 
         trust_remote_code=True,
-        split="train",
+        split="test",
         use_first=100,
     )
     
@@ -91,9 +91,20 @@ def run():
         _y_hat = extract_number(output[0])
         y.append(_y)
         y_hat.append(_y_hat)
-        print(_y, _y_hat)
+   
+    import numpy as np
+    y = np.array(y)
+    y_hat = np.array(y_hat)
     
     import pdb; pdb.set_trace()
+
+    mask = np.isnan(y) | np.isnan(y_hat)
+    y = y[~mask]
+    y_hat = y_hat[~mask]
+
+
+    rmse = ((y - y_hat) ** 2).sum(-1).mean() ** 0.5
+    print(rmse)
         
 
 

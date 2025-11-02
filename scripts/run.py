@@ -34,7 +34,7 @@ def run(args):
     lora_config = LoraConfig(
         r=8,
         lora_alpha=16,
-        # target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "up_proj", "down_proj"],
+        # target_modules=["embed_tokens", "q_proj", "k_proj", "v_proj", "o_proj", "up_proj", "down_proj"],
         target_modules=["embed_tokens", "q_proj", "k_proj"],
         lora_dropout=0.1,
         bias="none",
@@ -46,11 +46,11 @@ def run(args):
         
     tasks = [
         'property_prediction-esol',
-        # 'property_prediction-lipo',
-        # 'property_prediction-bbbp',
-        # 'property_prediction-clintox',
-        # 'property_prediction-hiv',
-        # 'property_prediction-sider',
+        'property_prediction-lipo',
+        'property_prediction-bbbp',
+        'property_prediction-clintox',
+        'property_prediction-hiv',
+        'property_prediction-sider',
     ]
 
     dataset = load_dataset(
@@ -68,8 +68,8 @@ def run(args):
     
     # define the training arguments
     training_args = TrainingArguments(
-        output_dir="./results",
-        per_device_train_batch_size=4,
+        output_dir="./results-large",
+        per_device_train_batch_size=16,
         num_train_epochs=100,
         save_total_limit=2,
         fp16=True,
