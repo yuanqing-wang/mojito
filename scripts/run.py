@@ -5,15 +5,18 @@ from peft import LoraConfig, get_peft_model
 from datasets import load_dataset
 
 def tokenize(prompt, tokenizer):
+    if not prompt.endswith(tokenizer.eos_token):
+        prompt += tokenizer.eos_token
     result = tokenizer(prompt, padding="max_length", max_length=128, truncation=True)
-    result["labels"] = result["input_ids"].copy() # .clone()
+    result["labels"] = result["input_ids"].copy()
     return result
 
 def get_data(point, tokenizer):
     input_text = point['input']
     output_text = point['output']
     prompt = f"[INST]{input_text}[/INST]{output_text}"
-    prompt = re.sub(r'(<SMILES>[^<;]*);([^<]*</SMILES>)', r'\1</SMILES> <SMILES>\2', prompt)    
+    prompt = re.sub(r'(<SMILES>[^<;]*);([^<]*</SMILES>)', r'\1</SMILES>;<SMILES>\2', prompt)    
+    prompt = re.sub(r'(<SMILES>[^<;]*).([^<]*</SMILES>)', r'\1</SMILES>.<SMILES>\2', prompt)
     try:
         prompt = preprocess(prompt)
         prompt = prompt.replace("SMILES>", "MOJITO>")
@@ -25,11 +28,8 @@ def get_data(point, tokenizer):
 
 def run(args):
     model = AutoModelForCausalLM.from_pretrained(args.model)
-    print(model)
     tokenizer = AutoTokenizer.from_pretrained(args.model)
-    add(tokenizer)    
     model.resize_token_embeddings(len(tokenizer))
-    print(sum(p.numel() for p in model.parameters() if p.requires_grad))
 
     lora_config = LoraConfig(
         r=8,
@@ -43,19 +43,9 @@ def run(args):
     model = get_peft_model(model, lora_config)
     print(sum(p.numel() for p in model.parameters() if p.requires_grad))
 
-        
-    tasks = [
-        'property_prediction-esol',
-        'property_prediction-lipo',
-        'property_prediction-bbbp',
-        'property_prediction-clintox',
-        'property_prediction-hiv',
-        'property_prediction-sider',
-    ]
-
     dataset = load_dataset(
         'osunlp/SMolInstruct', 
-        tasks=tasks, 
+        # tasks=tasks, 
         trust_remote_code=True,
         split="train",
         # use_first=100,
