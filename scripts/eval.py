@@ -36,7 +36,7 @@ def extract_number(string):
     return None
 
 def run():
-    ckpt = "./results-large/checkpoint-221000/"
+    ckpt = "./results-large/checkpoint-199500/"
     peft_cfg = PeftConfig.from_pretrained(ckpt)
     base = peft_cfg.base_model_name_or_path
     tokenizer = AutoTokenizer.from_pretrained("./results-large/")
@@ -93,17 +93,15 @@ def run():
         y_hat.append(_y_hat)
    
     import numpy as np
-    y = np.array(y)
-    y_hat = np.array(y_hat)
-    
-    import pdb; pdb.set_trace()
+    y = np.array(y).astype(np.float32)
+    y_hat = np.array(y_hat).astype(np.float32)
 
     mask = np.isnan(y) | np.isnan(y_hat)
     y = y[~mask]
     y_hat = y_hat[~mask]
 
 
-    rmse = ((y - y_hat) ** 2).sum(-1).mean() ** 0.5
+    rmse = ((y - y_hat) ** 2).mean() ** 0.5
     print(rmse)
         
 

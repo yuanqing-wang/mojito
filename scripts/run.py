@@ -34,8 +34,8 @@ def run(args):
     lora_config = LoraConfig(
         r=8,
         lora_alpha=16,
-        # target_modules=["embed_tokens", "q_proj", "k_proj", "v_proj", "o_proj", "up_proj", "down_proj"],
-        target_modules=["embed_tokens", "q_proj", "k_proj"],
+        target_modules=["embed_tokens", "q_proj", "k_proj", "v_proj", "o_proj", "up_proj", "down_proj"],
+        # target_modules=["embed_tokens", "q_proj", "k_proj"],
         lora_dropout=0.1,
         bias="none",
         task_type="CAUSAL_LM",
