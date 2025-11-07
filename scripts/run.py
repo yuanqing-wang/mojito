@@ -17,6 +17,7 @@ def get_data(point, tokenizer):
     prompt = f"[INST]{input_text}[/INST]{output_text}"
     prompt = re.sub(r'(<SMILES>[^<;]*);([^<]*</SMILES>)', r'\1</SMILES>;<SMILES>\2', prompt)    
     prompt = re.sub(r'(<SMILES>[^<;]*).([^<]*</SMILES>)', r'\1</SMILES>.<SMILES>\2', prompt)
+    prompt = prompt.replace("<SMILES></SMILES>", "")
     try:
         prompt = preprocess(prompt)
         prompt = prompt.replace("SMILES>", "MOJITO>")
@@ -54,6 +55,8 @@ def run(args):
     dataset = dataset.shuffle().map(
         lambda x: get_data(x, tokenizer),
     )
+
+    dataset.save_to_disk("mapped")
     
     
     # define the training arguments
