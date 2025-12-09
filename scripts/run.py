@@ -2,7 +2,8 @@ import re
 from mojito.tokenizer import preprocess, add
 from transformers import AutoModelForCausalLM, AutoTokenizer, Trainer, TrainingArguments
 from peft import LoraConfig, get_peft_model
-from datasets import load_dataset
+from datasets import load_dataset, load_from_disk
+import torch
 
 def tokenize(prompt, tokenizer):
     if not prompt.endswith(tokenizer.eos_token):
@@ -28,7 +29,7 @@ def get_data(point, tokenizer):
 
 
 def run(args):
-    model = AutoModelForCausalLM.from_pretrained(args.model)
+    model = AutoModelForCausalLM.from_pretrained(args.model, torch_dtype=torch.float16)
     tokenizer = AutoTokenizer.from_pretrained(args.model)
     model.resize_token_embeddings(len(tokenizer))
 
@@ -44,6 +45,7 @@ def run(args):
     model = get_peft_model(model, lora_config)
     print(sum(p.numel() for p in model.parameters() if p.requires_grad))
 
+    '''
     dataset = load_dataset(
         'osunlp/SMolInstruct', 
         # tasks=tasks, 
@@ -55,14 +57,16 @@ def run(args):
     dataset = dataset.shuffle().map(
         lambda x: get_data(x, tokenizer),
     )
+    '''
 
-    dataset.save_to_disk("mapped")
-    
+    # dataset.save_to_disk("mapped")
+
+    dataset = load_from_disk("mapped", keep_in_memory=False)
     
     # define the training arguments
     training_args = TrainingArguments(
-        output_dir="./results-large",
-        per_device_train_batch_size=16,
+        output_dir="./results",
+        per_device_train_batch_size=1,
         num_train_epochs=100,
         save_total_limit=2,
         fp16=True,
@@ -82,6 +86,6 @@ def run(args):
 if __name__ == "__main__":
     from argparse import ArgumentParser
     parser = ArgumentParser()
-    parser.add_argument("--model", type=str, default="Qwen/Qwen3-0.6B")
+    parser.add_argument("--model", type=str, default="Qwen/Qwen3-4B-Instruct-2507")
     args = parser.parse_args()
     run(args)
