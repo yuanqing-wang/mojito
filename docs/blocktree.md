@@ -135,3 +135,35 @@ vocabulary -- plus the honest demonstration that the GNN route is
 elegant only once identity is moved off the atoms and onto the tree.
 Canonical cut-atom ids currently rely on RDKit canonical ranking; an
 AHU tree-canonicalization would remove even that dependency.
+
+## Generative experiment (CPU smoke, 20k ZINC, 4-layer GPT)
+
+Same model/budget, mojito block tokens vs canonical SMILES. Final (step
+4000) and matched-step held-out metrics (n_sample=200, so validity is
+noisy at +/-~3%):
+
+| step | mojito validity | SMILES validity | mojito bits/mol | SMILES bits/mol |
+|---|---|---|---|---|
+| 1200 | 0.05 | 0.01 | 102 | 61 |
+| 2400 | 0.11 | 0.12 |  85 | 53 |
+| 4000 | 0.17 | 0.28 |  72 | 48 |
+
+Uniqueness and novelty 1.0 for both throughout. Verdict: **validity is a
+wash** (within sampling noise; both undertrained at this scale) and
+**SMILES wins held-out bits/molecule by ~1.5x** -- the same information-
+content disadvantage as the BPE experiments. The unmasked generative
+setup gives mojito no win; it exercises mojito's weak axis (sequence
+length / bits) and leaves its one structural advantage -- guaranteed
+100% validity via masked decoding -- switched off.
+
+## Overall verdict after six experiments
+
+BPE tokens/mol, BPE bits/mol, generative bits/mol, generative validity:
+SMILES-BPE wins or ties on every metric that reduces to information
+content, because it sits near the molecular-entropy floor with a tiny
+alphabet. No lossless tokenizer beats it there. The block/ring
+tokenizer's only defensible contribution is **capabilities SMILES-BPE
+lacks** -- permutation-invariance, bijection + exact `log p(molecule)`,
+and constrained 100%-valid decoding -- not any benchmark win. Pursuing a
+token-efficiency or likelihood-efficiency result against SMILES is not
+recommended.
