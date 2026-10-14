@@ -18,7 +18,11 @@ import pandas as pd
 from tokenizers import Tokenizer, models, trainers
 
 from mojito.blocktree import canonical_smiles
-from mojito.serialize import to_string, tokens as block_tokens
+from mojito.serialize import (
+    to_string,
+    tokens as block_tokens,
+    ringcollapse_tokens,
+)
 
 ATOM = re.compile(
     r"\[[^\]]+\]|Br?|Cl?|[BCNOPSFIbcnops]|[0-9]|[=#()/\\+\-@%.]"
@@ -33,8 +37,12 @@ def smiles_tokens(s):
 
 def token_lists(smis, which):
     """One atom-token list per molecule."""
-    fn = (lambda s: block_tokens(to_string(s))) if which == "block" \
-        else smiles_tokens
+    fns = {
+        "block": lambda s: block_tokens(to_string(s)),
+        "ringcollapse": ringcollapse_tokens,
+        "smiles": smiles_tokens,
+    }
+    fn = fns[which]
     out = []
     for s in smis:
         try:
@@ -70,7 +78,7 @@ def run(path, out, n_train, n_eval, seed):
     random.Random(seed).shuffle(smis)
     train, held = smis[:n_train], smis[n_train:n_train + n_eval]
     results = {}
-    for which in ("block", "smiles"):
+    for which in ("block", "ringcollapse", "smiles"):
         tr_tok = token_lists(train, which)
         ev_tok = token_lists(held, which)
         alphabet = sorted({t for toks in tr_tok + ev_tok for t in toks})
@@ -105,8 +113,11 @@ def plot(results, out):
         warnings.warn("Montserrat not found")
     plt.rcParams.update({"font.size": 12, "pdf.fonttype": 42})
     fig, ax = plt.subplots(figsize=(4.0, 3.0))
-    colors = {"block": "#0072B2", "smiles": "#D55E00"}
-    labels = {"block": "block-cut (ours)", "smiles": "canonical SMILES"}
+    colors = {"block": "#999999", "ringcollapse": "#0072B2",
+              "smiles": "#D55E00"}
+    labels = {"block": "block-cut atoms",
+              "ringcollapse": "ring-collapsed (ours)",
+              "smiles": "canonical SMILES"}
     for which, row in results.items():
         xs = sorted(k for k in row if k)
         ax.plot(xs, [row[k] for k in xs], "o-", color=colors[which],
