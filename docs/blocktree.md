@@ -70,6 +70,44 @@ baseline. The block tokenizer's real advantage is not token count but the
 three guarantees below, which SMILES-BPE lacks (many SMILES per molecule;
 BPE merges are not permutation-invariant; no exact `p(molecule)`).
 
+## Can a lossless token beat SMILES-BPE? No. (the efficiency verdict)
+
+Ring-collapsed serialization (one token per ring system, SMILES'
+implicit connectivity for chains; `mojito/serialize.ringcollapse_tokens`)
+removes the block-cut scheme's chain-bond overhead. Extended to large
+vocab on 50k/5k held-out ZINC250k (`scripts/plot_bits.py`,
+`docs/figures/bits.pdf`):
+
+| BPE vocab | ring-collapse tok/mol | bits/mol | SMILES tok/mol | bits/mol |
+|---|---|---|---|---|
+| 4096  | 7.36 | 88.3 | 6.07 | 72.9 |
+| 8192  | 6.03 | 78.4 | 5.36 | 69.6 |
+| 16384 | 5.36 | 75.0 | 4.80 | 67.1 |
+| 32768 | 4.93 | 73.9 | 4.36 | 65.5 |
+
+**SMILES-BPE wins on both tokens/molecule and bits/molecule at every
+vocabulary size.** Why this is fundamental, not an implementation gap:
+
+- tokens/molecule is reducible by enlarging the vocabulary, so it is not
+  a fair target on its own. The fair metric is **bits/molecule =
+  tokens x log2(vocab)** -- the description length.
+- All lossless tokenizers converge to the same floor: the **entropy of a
+  ZINC molecule** (~65 bits and still falling for SMILES). You cannot
+  beat entropy.
+- SMILES reaches ~73 bits at vocab 4096 with a **41-symbol** alphabet.
+  Ring-collapse needs vocab 32768 to reach ~74 bits because its alphabet
+  is **3033** ring types -- it pays ~11 bits/token just naming which
+  ring. This "alphabet tax" is paid by *any* chemically-meaningful
+  larger-unit tokenizer (learned motif codebooks included).
+
+Conclusion: **no lossless molecular tokenizer beats SMILES-BPE on
+information content.** Token count is not where the contribution can be.
+The block/ring tokenizers' value is the three guarantees below --
+permutation-invariance, bijection, exact `log p(molecule)` -- which
+SMILES-BPE lacks (many SMILES per molecule; its merges are not
+permutation-invariant; `p(molecule)` is an intractable sum over spellings)
+-- delivered at a ~15-20% token premium, not a discount.
+
 ## Status and next steps
 Done: lossless + invariant symbolic backbone (`mojito/blocktree.py`),
 32 unit tests on hard cases (spiro, fused, biphenyl, symmetric
