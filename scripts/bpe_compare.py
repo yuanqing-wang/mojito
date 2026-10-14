@@ -15,8 +15,7 @@ import json
 import re
 
 import pandas as pd
-from rdkit import Chem
-from tokenizers import Tokenizer, models, trainers, pre_tokenizers
+from tokenizers import Tokenizer, models, trainers
 
 from mojito.blocktree import canonical_smiles
 from mojito.serialize import to_string, tokens as block_tokens
@@ -32,24 +31,29 @@ def smiles_tokens(s):
     return ATOM.findall(c) if c else None
 
 
-def corpus(smis, which):
-    """Space-joined atom-token lines for the BPE pre-tokenizer."""
-    lines = []
+def token_lists(smis, which):
+    """One atom-token list per molecule."""
     fn = (lambda s: block_tokens(to_string(s))) if which == "block" \
         else smiles_tokens
+    out = []
     for s in smis:
         try:
             toks = fn(s)
         except Exception:
             toks = None
         if toks:
-            lines.append(" ".join(toks))
-    return lines
+            out.append(toks)
+    return out
+
+
+def encode_chars(token_lists_all, charmap):
+    """Map each atom token to one private-use char; BPE then merges
+    across atoms (whitespace pre-tokenizers would forbid that)."""
+    return ["".join(charmap[t] for t in toks) for toks in token_lists_all]
 
 
 def train_bpe(lines, vocab_size):
     tok = Tokenizer(models.BPE())
-    tok.pre_tokenizer = pre_tokenizers.WhitespaceSplit()
     trainer = trainers.BpeTrainer(vocab_size=vocab_size, show_progress=False)
     tok.train_from_iterator(lines, trainer)
     return tok
@@ -67,7 +71,12 @@ def run(path, out, n_train, n_eval, seed):
     train, held = smis[:n_train], smis[n_train:n_train + n_eval]
     results = {}
     for which in ("block", "smiles"):
-        tr, ev = corpus(train, which), corpus(held, which)
+        tr_tok = token_lists(train, which)
+        ev_tok = token_lists(held, which)
+        alphabet = sorted({t for toks in tr_tok + ev_tok for t in toks})
+        charmap = {t: chr(0xE000 + i) for i, t in enumerate(alphabet)}
+        tr = encode_chars(tr_tok, charmap)
+        ev = encode_chars(ev_tok, charmap)
         base = sum(len(line.split()) for line in ev) / len(ev)
         row = {0: base}
         for v in VOCAB_SIZES:
