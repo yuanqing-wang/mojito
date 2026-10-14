@@ -41,6 +41,35 @@ so two atom orderings of the same molecule give byte-identical output.
 
 Stereochemistry is dropped (as in SMILES-tokenizer baselines).
 
+## Serialization + BPE: a negative result
+
+`scripts/bpe_compare.py` trains BPE at matched vocab sizes on the
+block-cut string vs canonical SMILES (both reduced to SMILES-atom units),
+50k train / 5k held-out ZINC250k. Result (`docs/figures/bpe.pdf`):
+
+| BPE vocab | block-cut | canonical SMILES |
+|---|---|---|
+| 256  | 40.06 | 11.42 |
+| 512  | 23.75 |  9.53 |
+| 1024 | 18.38 |  8.10 |
+| 2048 | 14.97 |  6.98 |
+| 4096 | 12.43 |  6.07 |
+
+**Atom-level block-string + BPE is ~2x worse than SMILES + BPE at every
+vocabulary size.** Cause: each articulation atom is spelled out in every
+block that shares it (cut atoms duplicate), inflating the base length to
+57.8 tokens/mol vs ~38 for SMILES, and BPE cannot recover the gap. The
+efficiency requirement is **not** met this way.
+
+Implication: compression must come at **motif granularity** -- one
+vocabulary entry per whole block/merged-motif (benzene = 1 token, not 6
+atom-tokens) -- not by BPE over spelled-out atoms. That is the learned-
+codebook / graph-BPE route (one token per block = 12.2/mol before
+merging; motif merges push lower), to be compared against this SMILES-BPE
+baseline. The block tokenizer's real advantage is not token count but the
+three guarantees below, which SMILES-BPE lacks (many SMILES per molecule;
+BPE merges are not permutation-invariant; no exact `p(molecule)`).
+
 ## Status and next steps
 Done: lossless + invariant symbolic backbone (`mojito/blocktree.py`),
 32 unit tests on hard cases (spiro, fused, biphenyl, symmetric
