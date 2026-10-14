@@ -34,7 +34,9 @@ def use_montserrat():
         plt.rcParams["font.family"] = "Montserrat"
     else:
         warnings.warn("Montserrat not found; using default font.")
-    plt.rcParams.update({"font.size": 12, "pdf.fonttype": 42})
+    plt.rcParams.update(
+        {"font.size": 12, "axes.titlesize": 12, "pdf.fonttype": 42}
+    )
 
 
 def read(run_dir):
@@ -54,7 +56,7 @@ def plot(run_dirs, out, width=7.0):
                     label=label)
         axes[0].plot(
             steps, [r["valid_exact_upper_bound"] for r in records],
-            color=color, ls="--", label=f"{label} (collision bound)",
+            color=color, ls="--", label=f"{label} bound",
         )
     for ax, (key, title) in zip(axes, PANELS):
         ax.set_title(title)
@@ -62,7 +64,7 @@ def plot(run_dirs, out, width=7.0):
         if key != "valid_code_perplexity":
             ax.set_ylim(0, 1)
         ax.spines[["top", "right"]].set_visible(False)
-    axes[0].legend(frameon=False, fontsize=8)
+    axes[0].legend(frameon=False, fontsize=8, loc="center right")
     fig.tight_layout()
     fig.savefig(out)
 

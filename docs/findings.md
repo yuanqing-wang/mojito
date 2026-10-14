@@ -6,7 +6,26 @@ Settings: ZINC250k, canonical-SMILES dedup then 80/10/10 random split
 (seed 0), atom vocabulary from train only. Featurization is lossless:
 20,000/20,000 random ZINC molecules round-trip exactly (stereo removed).
 
-RESULTS_PLACEHOLDER
+Split: 198,243 / 24,780 / 24,781 molecules, 34 atom types, 0 OOV drops.
+
+CPU smoke-scale run (`--hidden 128 --depth 4 --heads 8 --batch-size 64
+--lr 1e-3 --warmup 300 --steps 6000`, FSQ levels 8-5-5-5 = 1000 codes,
+seed 0; ~25 min on 4 CPU cores). Test set, best-validation checkpoint
+(step 6000):
+
+| atom acc | bond F1 | exact | collision bound | codes used | perplexity |
+|---|---|---|---|---|---|
+| 0.9998 | 0.925 | **0.185** | 0.891 | 945 / 1000 | 518 |
+
+Curves: `docs/figures/fsq_cpu_run.pdf` (validation, every 500 steps;
+single seed, no error bars). Still rising at the end — undertrained.
+
+Reading: atoms are trivial; bonds are the bottleneck. Exact match is far
+below the collision bound, and the bound itself is < 1, so this design
+cannot be one-to-one by construction (equal tokens on non-equivalent
+atoms are indistinguishable to an equivariant decoder). It also emits
+one token per heavy atom (23.1 / molecule on ZINC) — no compression.
+Keep as a learned baseline; not the main line.
 
 ## 2. Audit of `ring` (LLM + fragment tokens; latest branch, Dec 2025)
 
@@ -29,3 +48,27 @@ ZINC250k molecules (seed 0) against `origin/ring` (3146937):
 | `eval.py` | first 100 ESOL test points, unparseable outputs dropped (should count as failures), no SMILES baseline | Not a result yet |
 
 Conclusion: no number produced on `ring` so far measures the tokenizer.
+
+Additional `ring` measurements (2,000 / 500 random ZINC250k molecules,
+seed 0):
+
+- Permutation invariance: identical tokens under 5 random atom orderings
+  (`MolToSmiles(doRandom=True)`) for **4 / 499** molecules. Fragment
+  ordering ties and attachment indices depend on input atom order.
+- Length (mean per molecule): 23.1 heavy atoms, 44.3 canonical-SMILES
+  characters, 38.2 regex SMILES tokens, **14.9 `ring` tokens**.
+
+## 3. Direction
+
+Invariance + injectivity = a canonical form. Proposed: certified
+canonical labeling (colored graph, stereo kept) -> graph-BPE motif
+merges with canonical tie-breaks and orbit-based attachment indices ->
+minimum DFS code over the motif tree. Minimum DFS codes are
+prefix-checkable (gSpan), enabling canonicity + valence masks at decode
+time, hence a bijection between the LM's support and molecules and an
+exact log p(molecule). Continuous information enters as a per-token
+side channel added to input embeddings, never as the identity.
+Closest prior work: Guo et al., ICLR 2026 (arXiv:2603.11099), Euler
+serialization + BPE, "almost invariant", generation only a proof of
+concept. Key risk: canonical strings are harder to learn than
+randomized ones (Arus-Pous et al. 2019) — test this first.
