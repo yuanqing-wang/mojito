@@ -1,159 +1,69 @@
-import dgl
+"""Graph transformer encoder with structural attention bias."""
+
 import torch
-import torch.nn as nn
-from functools import partial
+from torch import nn
 
-GCN = partial(dgl.nn.GraphConv, allow_zero_in_degree=True)
-GAT = partial(dgl.nn.GATConv, num_heads=1)
-GraphSAGE = partial(dgl.nn.SAGEConv, aggregator_type='mean')
+from .chem import NUM_BOND_TYPES
+from .layers import BiasedAttention
 
-def get_attn_mask(graph: dgl.DGLGraph):
-    number_of_nodes = graph.batch_num_nodes()
-    graph_idx = torch.repeat_interleave(torch.arange(len(number_of_nodes), device=graph.device), number_of_nodes)
-    binary_mask = graph_idx.unsqueeze(0) != graph_idx.unsqueeze(1)
-    adj = graph.adj().to_dense()
-    return binary_mask, adj
-
-class GIN(dgl.nn.GINConv):
-    def __init__(self, in_feats, out_feats):
-        super().__init__(
-            apply_func=torch.nn.Linear(in_feats, out_feats),
-            aggregator_type='sum',
-            learn_eps=True,
-        )
-        
-
-class Attention(torch.nn.Module):
-    def __init__(
-        self,
-        hidden_features: int,
-        num_heads: int,
-        activation: torch.nn.Module = torch.nn.SiLU(),
-        dropout: float = 0.1,
-        power: int = 10,
-    ):
-        super().__init__()
-        self.mha = torch.nn.MultiheadAttention(
-            embed_dim=hidden_features,
-            num_heads=num_heads,
-            batch_first=True,
-            dropout=dropout,
-        )
-        
-        self.ffn = torch.nn.Sequential(
-            torch.nn.Linear(hidden_features, hidden_features),
-            activation,
-            torch.nn.Dropout(dropout),
-            torch.nn.Linear(hidden_features, hidden_features),
-        )
-        
-        self.activation = activation
-        self.norm0 = torch.nn.LayerNorm(hidden_features)
-        self.norm1 = torch.nn.LayerNorm(hidden_features)
-        self.power_to_head = torch.nn.Sequential(
-            torch.nn.Linear(power, hidden_features),
-            activation,
-            torch.nn.Linear(hidden_features, num_heads),
-        )
-        self.power = power
-        self.INF = 1e9
-        
-    def forward(
-        self,
-        g: dgl.DGLGraph,
-        h: torch.Tensor,
-    ):
-        g = g.local_var()
-        mask, adj = get_attn_mask(g)
-        adj = torch.stack([torch.matrix_power(adj, i+1) for i in range(self.power)], dim=-1)
-        adj = self.power_to_head(adj)
-        adj = adj - mask.unsqueeze(-1) * self.INF
-        
-        h0 = h
-        h = self.norm0(h)
-        h = self.mha(h, h, h, attn_mask=mask)[0] + h0
-        h0 = h
-        h = self.norm1(h)
-        h = self.ffn(h) + h0
-        return h
 
 class Encoder(nn.Module):
-    """Stacks of DGL layers.
+    """Graphormer-style encoder: atoms attend to all atoms in the same
+    molecule, with per-head biases from bond type and topological
+    distance (permutation-invariant, unlike Laplacian PEs).
 
     Parameters
     ----------
-    layer : str
-        The name of the DGL layer to use.
-
-    prediction_head_params : dict
-        Parameters for the prediction head.
-
-    in_features : int
-        The input dimension.
-
+    num_atom_types : int
+        Atom-vocabulary size.
     hidden_features : int
-        The model dimension.
-
+        Model width.
+    out_features : int
+        Output width (the quantizer's dimension).
     depth : int
-        The number of layers.
-
-    activation_fn : nn.Module
-        The activation function to use.
-
-    name : str
-        The name of the model.
-
-    Returns
-    -------
-    predictions : torch.Tensor
+        Number of transformer blocks.
+    num_heads : int
+        Number of attention heads.
+    max_distance : int
+        Distances beyond this share one bias.
+    dropout : float
+        Dropout rate.
     """
+
     def __init__(
         self,
-        in_features: int,
+        num_atom_types: int,
         hidden_features: int,
-        depth: int = 3,
-        num_heads: int = 4,
-        layer: torch.nn.Module = GIN,
-        activation_fn: nn.Module = nn.SiLU(),
-):
+        out_features: int,
+        depth: int = 4,
+        num_heads: int = 8,
+        max_distance: int = 8,
+        dropout: float = 0.0,
+    ):
         super().__init__()
-
-        # projection in
-        self.fc_in = torch.nn.Sequential(
-            torch.nn.Linear(in_features, hidden_features),
-            torch.nn.Tanh(),
-            torch.nn.Linear(hidden_features, hidden_features),
-        )
-
-        # list of DGL layers
+        self.max_distance = max_distance
+        self.embed = nn.Embedding(num_atom_types, hidden_features)
+        self.bond_bias = nn.Embedding(NUM_BOND_TYPES, num_heads)
+        self.distance_bias = nn.Embedding(max_distance + 2, num_heads)
         self.layers = nn.ModuleList(
-            [
-                layer(
-                    hidden_features, hidden_features,
-                )
-                for _ in range(depth)
-            ]
+            BiasedAttention(hidden_features, num_heads, dropout)
+            for _ in range(depth)
         )
-                
-        self.attentions = nn.ModuleList(
-            [
-                Attention(hidden_features, num_heads=num_heads)
-                for _ in range(depth)
-            ]
-        )
-                       
-        self.activation_fn = activation_fn
-        self.hidden_features = hidden_features
-        self.depth = depth
+        self.norm = nn.LayerNorm(hidden_features)
+        self.out = nn.Linear(hidden_features, out_features)
 
-    def forward(self, g, h):
-        h = self.fc_in(h)
-        for idx, layer in enumerate(self.layers):
-            h0 = h
-            h = layer(g, h)
-            h = self.attentions[idx](g, h)
-            if idx < self.depth - 1:
-                h = self.activation_fn(h)
-            h = h + h0
-        h = h.tanh()
-        return h
+    def forward(
+        self,
+        atoms: torch.Tensor,
+        bonds: torch.Tensor,
+        distance: torch.Tensor,
+        mask: torch.Tensor,
+    ) -> torch.Tensor:
+        """Map ``(B, N)`` atoms to ``(B, N, out_features)``."""
+        distance = distance.clamp(max=self.max_distance + 1)
+        bias = self.bond_bias(bonds) + self.distance_bias(distance)
+        bias = bias.permute(0, 3, 1, 2)
+        h = self.embed(atoms)
+        for layer in self.layers:
+            h = layer(h, mask, bias)
+        return self.out(self.norm(h))
