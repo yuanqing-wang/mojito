@@ -64,3 +64,21 @@ def test_blocks_are_biconnected_units():
     # 6-membered ring has one cut (the ipso carbon); chain bonds have
     # one or two cuts each -- all blocks carry at least one tag
     assert all(s >= 1 for s in sizes)
+
+
+@pytest.mark.parametrize("smiles", CASES)
+def test_string_round_trip(smiles):
+    from mojito.serialize import to_string, from_string
+    rebuilt = from_string(to_string(smiles))
+    assert rebuilt is not None
+    assert canonical_smiles(rebuilt) == canonical_smiles(smiles)
+
+
+@pytest.mark.parametrize("smiles", CASES)
+def test_string_permutation_invariant(smiles):
+    from mojito.serialize import to_string
+    m = Chem.MolFromSmiles(smiles)
+    base = to_string(smiles)
+    for _ in range(8):
+        shuffled = Chem.MolToSmiles(m, doRandom=True, canonical=False)
+        assert to_string(shuffled) == base
