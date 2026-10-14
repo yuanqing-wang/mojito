@@ -45,7 +45,18 @@ def to_string(mol: Mollike) -> Optional[str]:
 
 
 def from_string(text: str) -> Optional[Chem.Mol]:
-    """Rebuild the molecule from a block string, or ``None``."""
+    """Rebuild the molecule from a block string, or ``None``.
+
+    Robust to arbitrary (e.g. model-generated) input: any malformed
+    string returns ``None`` instead of raising.
+    """
+    try:
+        return _from_string(text)
+    except (RuntimeError, ValueError, KeyError):
+        return None
+
+
+def _from_string(text: str) -> Optional[Chem.Mol]:
     out = Chem.RWMol()
     node: dict = {}
     for frag in text.split(_SEP):
@@ -70,6 +81,8 @@ def from_string(text: str) -> Optional[Chem.Mol]:
                 node[tag] = idx  # cut atom: infer Hs from valence later
         for b in sub.GetBonds():
             i, j = local[b.GetBeginAtomIdx()], local[b.GetEndAtomIdx()]
+            if i == j:  # malformed input: a tag fused an atom to itself
+                return None
             if out.GetBondBetweenAtoms(i, j) is None:
                 out.AddBond(i, j, b.GetBondType())
     mol = out.GetMol()
