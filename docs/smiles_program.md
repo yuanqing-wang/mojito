@@ -3,11 +3,18 @@
 `mojito/smiles_program.py` implements SMILES as a transparent
 encoder/decoder, using RDKit only for the molecular graph (atoms, bonds,
 canonical ranks) -- never `MolToSmiles`/`MolFromSmiles` for the string.
-The grammar's real decisions become editable code:
+It is a **faithful port of RDKit's own algorithm** (`Code/GraphMol/
+Canon.cpp`: `dfsFindCycles` + `dfsBuildStack`), so it reproduces RDKit's
+exact canonical atom order -- verified 100% against RDKit's
+`_smilesAtomOutputOrder` (`scripts/verify_smiles_traversal.py`). The
+grammar's real decisions are now editable code:
 
-- **traversal:** recursive DFS from the canonical-rank root, neighbours
-  visited in canonical-rank order (-> permutation-invariant);
-- **ring closures:** DFS back-edges get paired digits (`%nn` past 9);
+- **traversal:** two-pass three-colour DFS from the lowest-canonical-rank
+  root, with RDKit's rank-biasing (constants MAX_NATOMS=5000,
+  MAX_BONDTYPE=32): ring-closure neighbours visited first, then non-ring,
+  then ring atoms;
+- **ring closures:** back-edges get the lowest available digit, reused as
+  rings close (`%nn` past 9), bond symbol emitted at the closing end;
 - **branches:** `( )` around all but the last child;
 - **atoms:** fully-explicit `[<symbol><Hn><charge>]`, kekulized, stereo
   dropped -- verbose on purpose, so shortening is a *rule*, not a baked
@@ -15,6 +22,7 @@ The grammar's real decisions become editable code:
 - **bonds:** `=`/`#`, single implicit.
 
 ## Verified (10k held-out ZINC250k)
+- atom order vs RDKit `_smilesAtomOutputOrder`: **100.00%** (faithful port)
 - round-trip (decode(encode(m)) == m, canonical): **100.00%**
 - permutation-invariant (3 random atom orders each): **100.00%**
 - length: 43.8 program tokens/mol vs 38.2 for RDKit SMILES -- the ~15%

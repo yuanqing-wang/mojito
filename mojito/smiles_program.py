@@ -43,73 +43,158 @@ def _ring_digit(n: int) -> str:
     return str(n) if n < 10 else f"%{n:02d}"
 
 
-def encode(mol) -> Optional[str]:
-    """Molecular graph -> SMILES-dialect string via canonical DFS."""
-    m = Chem.Mol(mol)
-    Chem.RemoveStereochemistry(m)
-    Chem.Kekulize(m, clearAromaticFlags=True)
-    n = m.GetNumAtoms()
-    if n == 0:
-        return ""
-    rank = list(Chem.CanonicalRankAtoms(m, breakTies=True))
-    order = sorted(range(n), key=lambda a: rank[a])
+# RDKit Canon.cpp traversal constants (Code/GraphMol/Canon.h)
+_MAX_NATOMS = 5000
+_MAX_BONDTYPE = 32
+_MAX_CYCLES = 1024
+_WHITE, _GREY, _BLACK = 0, 1, 2
 
-    # classify edges by DFS: tree edges vs ring-closure (back) edges
-    adj = {a: sorted((b.GetOtherAtomIdx(a) for b in
-                      m.GetAtomWithIdx(a).GetBonds()), key=lambda x: rank[x])
-           for a in range(n)}
-    visited, parent, closures = set(), {}, {a: [] for a in range(n)}
-    next_digit = [1]
 
+def _traverse(m):
+    """Faithful port of RDKit's Canon.cpp dfsFindCycles + dfsBuildStack.
+
+    Two passes over the graph in canonical-rank order, with RDKit's
+    rank-biasing so ring-closure neighbours are visited first, then
+    non-ring, then ring atoms. Returns, per start fragment, the emit
+    order: a list of events ('atom' a) / ('ring' digit, bondtype) /
+    ('branch_open',) / ('branch_close',) / ('bond', bondtype) / ('dot',).
+    Reproduces RDKit's exact ``_smilesAtomOutputOrder``.
+    """
     import sys
-    sys.setrecursionlimit(10000)
-    used = set()  # undirected edges already placed (tree or ring)
+    sys.setrecursionlimit(100000)
+    n = m.GetNumAtoms()
+    rank = list(Chem.CanonicalRankAtoms(m, breakTies=True))
+    ri = m.GetRingInfo()
 
-    def classify(a, par):
-        """Recursive DFS: each edge is used once -- as a tree edge or,
-        if it closes back to an ancestor, as a ring closure."""
-        visited.add(a)
-        parent[a] = par
-        for b in adj[a]:
-            e = frozenset((a, b))
-            if e in used:
+    def in_ring(bond):
+        return ri.NumBondRings(bond.GetIdx()) > 0
+
+    def biased(base, bond, grey):
+        # Canon.cpp dfsFindCycles "black magic" neighbour ordering.
+        bt = int(bond.GetBondType())
+        if grey:
+            base -= (_MAX_BONDTYPE + 1) * _MAX_NATOMS * _MAX_NATOMS
+            base += (_MAX_BONDTYPE - bt) * _MAX_NATOMS
+        elif in_ring(bond):
+            base += (_MAX_BONDTYPE - bt) * _MAX_NATOMS * _MAX_NATOMS
+        return base
+
+    ring_closures = {a: [] for a in range(n)}
+
+    def find_cycles(a, in_bond, tcolors):
+        tcolors[a] = _GREY
+        poss = []
+        for bond in m.GetAtomWithIdx(a).GetBonds():
+            if bond.GetIdx() == in_bond:
                 continue
-            used.add(e)
-            if b not in visited:
-                classify(b, a)
-            else:  # back edge -> ring closure
-                d = next_digit[0]
-                next_digit[0] += 1
-                bond = m.GetBondBetweenAtoms(a, b).GetBondType()
-                closures[a].append((d, bond))
-                closures[b].append((d, bond))
+            o = bond.GetOtherAtomIdx(a)
+            poss.append((biased(rank[o], bond, tcolors[o] == _GREY),
+                         o, bond.GetIdx()))
+        for _, o, bi in sorted(poss, key=lambda x: x[0]):
+            if tcolors[o] == _WHITE:
+                find_cycles(o, bi, tcolors)
+            elif tcolors[o] == _GREY:  # back edge -> ring closure
+                ring_closures[o].append(bi)
+                ring_closures[a].append(bi)
+        tcolors[a] = _BLACK
 
-    for a in order:
-        if a not in visited:
-            classify(a, -1)
+    colors = [_WHITE] * n
+    events = []
+    digit_of = {}
+    available = list(range(1, _MAX_CYCLES + 1))
 
-    # recursive emit in canonical child order
+    def build_stack(a, in_bond):
+        seen = {a}
+        events.append(("atom", a))
+        colors[a] = _GREY
+        closed = []
+        for bi in ring_closures[a]:
+            bond = m.GetBondWithIdx(bi)
+            seen.add(bond.GetOtherAtomIdx(a))
+            if bi in digit_of:                       # closing end: bond+digit
+                events.append(("ring_close", digit_of[bi], bi))
+                closed.append(digit_of[bi])
+            else:                                    # opening end: digit only
+                d = available.pop(0)
+                digit_of[bi] = d
+                events.append(("ring_open", d))
+        for d in closed:
+            available.append(d)
+            available.sort()
+        poss = []
+        for bond in m.GetAtomWithIdx(a).GetBonds():
+            if bond.GetIdx() == in_bond:
+                continue
+            o = bond.GetOtherAtomIdx(a)
+            if colors[o] != _WHITE or o in seen:
+                continue
+            base = rank[o]
+            if in_ring(bond):
+                base += (_MAX_BONDTYPE - int(bond.GetBondType())) \
+                    * _MAX_NATOMS * _MAX_NATOMS
+            poss.append((base, o, bond.GetIdx()))
+        poss.sort(key=lambda x: x[0])
+        for i, (_, o, bi) in enumerate(poss):
+            if colors[o] != _WHITE:
+                continue
+            branch = i < len(poss) - 1
+            if branch:
+                events.append(("branch_open",))
+            events.append(("bond", bi))
+            build_stack(o, bi)
+            if branch:
+                events.append(("branch_close",))
+        colors[a] = _BLACK
+
+    first = True
+    while len(digit_of) + sum(1 for c in colors if c != _WHITE) < n \
+            or any(c == _WHITE for c in colors):
+        white = [a for a in range(n) if colors[a] == _WHITE]
+        if not white:
+            break
+        start = min(white, key=lambda a: rank[a])
+        if not first:
+            events.append(("dot",))
+        first = False
+        find_cycles(start, -1, [_WHITE] * n)
+        build_stack(start, -1)
+    return events
+
+
+def encode(mol) -> Optional[str]:
+    """Molecular graph -> SMILES-dialect string.
+
+    The traversal runs on the aromatic molecule (as RDKit does, so the
+    atom order is RDKit-canonical); bond symbols are read from a Kekule
+    copy by bond index for the explicit dialect.
+    """
+    arom = Chem.Mol(mol)
+    Chem.RemoveStereochemistry(arom)
+    Chem.SanitizeMol(arom)
+    if arom.GetNumAtoms() == 0:
+        return ""
+    kek = Chem.Mol(arom)
+    Chem.Kekulize(kek, clearAromaticFlags=True)
+
+    def bond_symbol(bi):
+        return _BOND_SYMBOL[kek.GetBondWithIdx(bi).GetBondType()]
+
     out = []
-
-    def emit(a):
-        out.append(_atom_token(m.GetAtomWithIdx(a)))
-        for d, bond in closures[a]:
-            out.append(_BOND_SYMBOL[bond] + _ring_digit(d))
-        children = [b for b in adj[a]
-                    if parent.get(b) == a and b != parent[a]]
-        for i, b in enumerate(children):
-            bt = m.GetBondBetweenAtoms(a, b).GetBondType()
-            branch = i < len(children) - 1
-            out.append("(" if branch else "")
-            out.append(_BOND_SYMBOL[bt])
-            emit(b)
-            out.append(")" if branch else "")
-
-    roots = [a for a in order if parent.get(a) == -1]
-    for i, r in enumerate(roots):
-        if i:
+    for ev in _traverse(arom):
+        if ev[0] == "atom":
+            out.append(_atom_token(kek.GetAtomWithIdx(ev[1])))
+        elif ev[0] == "ring_open":
+            out.append(_ring_digit(ev[1]))
+        elif ev[0] == "ring_close":
+            out.append(bond_symbol(ev[2]) + _ring_digit(ev[1]))
+        elif ev[0] == "bond":
+            out.append(bond_symbol(ev[1]))
+        elif ev[0] == "branch_open":
+            out.append("(")
+        elif ev[0] == "branch_close":
+            out.append(")")
+        elif ev[0] == "dot":
             out.append(".")
-        emit(r)
     return "".join(out)
 
 
