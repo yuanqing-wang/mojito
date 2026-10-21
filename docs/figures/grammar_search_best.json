@@ -1,0 +1,10 @@
+{
+ "grammar": "deep+bpe512",
+ "deep": true,
+ "k": 512,
+ "corpus_bits_per_mol": 54.696827042449506,
+ "grammar_bits_amortized": 0.4082012609503545,
+ "fitness": 55.10502830339986,
+ "tokens_per_mol": 8.522333333333334,
+ "vocab": 554
+}
