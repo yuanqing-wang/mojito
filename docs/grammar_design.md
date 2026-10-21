@@ -86,17 +86,38 @@ Losslessness is guaranteed *by the invertible-rule contract* — malformed
 LLM edits fail a round-trip gate rather than silently corrupting, so the
 search never needs to trust the LLM.
 
-### 3. Objective — description length under a cheap entropy proxy
+### 3. Objective — two-part minimum description length
+Optimize **total description length = L(grammar) + L(corpus | grammar)**,
+not corpus bits alone. Minimizing corpus bits by itself drives the
+vocabulary to infinity (one token per molecule -> ~0 corpus bits, zero
+generalization); the grammar term is the regularizer that bounds vocab.
+"Shorter description" and "limit vocabulary" are therefore the *same*
+objective done properly, not two goals.
+
 Fitness of a candidate grammar on a held-out corpus:
 1. **Hard gate:** 100% round-trip (encode->decode == input), else reject.
    Optionally also permutation-invariance (same code for reordered atoms).
-2. **Primary:** bits/molecule = held-out cross-entropy under a *cheap,
-   faithful* entropy model fit on the encoded corpus — an order-k Markov
-   / n-gram LM (fast) as a proxy for the true LM NLL (the generative run
-   showed a trained GPT reaches <= 48 bits/mol, far below the 65.5
-   uniform-code bound; the proxy must track that, not the uniform bound).
-3. **Secondary:** tokens/molecule (transformer compute is O(L^2)).
-4. **Prior:** Zipf — shorter symbols for more frequent units.
+2. **L(corpus | grammar):** bits/molecule = held-out cross-entropy under a
+   *cheap, faithful* entropy model fit on the encoded corpus — an order-k
+   Markov / n-gram LM (fast) as a proxy for the true LM NLL (the
+   generative run showed a trained GPT reaches <= 48 bits/mol, far below
+   the 65.5 uniform-code bound; the proxy must track that). Held-out NLL
+   already self-regularizes vocab (rare tokens cost more -log p, extra
+   embedding params overfit) -- which is why it, not tokens/mol, is fair.
+3. **L(grammar):** bits to transmit the vocabulary/rules themselves. This
+   is the half held-out NLL omits (it assumes a shared grammar), and it
+   prevents codebook overfitting. The Zipf/Unigram criterion makes it
+   concrete: a token earns its slot iff frequency x bits-saved >
+   cost-to-introduce (~log2 corpus size) -- exactly Unigram-LM pruning.
+4. **Secondary:** tokens/molecule (transformer compute is O(L^2)); and the
+   downstream |V|-dependent model cost (embedding + softmax are O(|V|d)).
+
+The vocab tradeoff is **non-monotonic** -- too small lengthens sequences,
+too large undertrains tokens and inflates the model -- so the search must
+*find* the sweet spot (molecules: ~hundreds to low thousands), not fix it.
+Cross-tokenizer comparisons must hold vocab fixed OR compare total
+description length, else they are apples to oranges (why our grammar
+experiment compared at matched vocab).
 
 ## The optimization loop (FunSearch pattern)
 ```
