@@ -170,3 +170,35 @@ evidence ([Rethinking Molecular Text Representations](https://arxiv.org/pdf/2606
 automated designer (LLM/FunSearch). The tokenizer stops being the
 contribution; the *method for discovering optimal molecular languages*
 is.
+
+## Does starting from the graph (not SMILES) help? Traversal headroom
+
+SMILES is one fixed canonical traversal of the graph. Starting from the
+graph frees the traversal order -- the main lever on conditional entropy.
+Test (20k train / 3k held-out ZINC, bigram fit on canonical): score each
+held-out molecule under canonical SMILES vs the best of 20 random graph
+traversals of the same molecule.
+
+| ordering | bits/mol |
+|---|---|
+| canonical SMILES | 98.0 |
+| mean random traversal | 111.4 |
+| best-of-20 random traversal | 97.7 |
+
+**Traversal headroom ~= 0.3 bits/mol (~0%).** Canonical SMILES already
+picks a near-optimal traversal; random reorderings are worse and the
+best barely ties. Combined with earlier results -- syntax slack ~5%
+(DeepSMILES), explicit-connectivity graph encodings *lose* (block-cut
+tree) -- canonical SMILES sits close to the practical floor, and the
+graph substrate's traversal freedom offers little measured upside here.
+
+Caveats: a bigram is weak and was fit on canonical (biases against
+alternatives, yet they still only tied); *systematic* alternative
+canonical traversals (BFS, degree, spectral/Fiedler order) are untested
+and need the graph-grammar build; a stronger model might exploit a
+different order more. But the easy win (reorder-for-free) is ~0.
+
+Implication: the remaining lever is the LLM proposing genuinely novel
+*reversible rules*, not changing the substrate. The graph substrate is
+theoretically cleaner (canonical, invariant by construction) but the
+empirical slack it exposes is small.
