@@ -28,20 +28,28 @@ dropping SMILES' two redundancies: ring-closure digit *pairs* (one
 ring-size digit instead) and parentheses (a `)` count). SELFIES is
 worst: robustness makes it verbose.
 
-## The ceiling (why the win is modest and bounded)
+## The entropy floor (corrected)
 
-bits/molecule is bounded below by the **entropy of the molecule
-distribution**, ~65 bits for ZINC (lowest bits/molecule reached at large
-vocab). At vocab V the token floor is entropy / log2(V); at 4096 that is
-65.5 / 12 = **5.46 tokens/molecule**. So:
+The true floor is the **Shannon entropy** H of the molecule
+distribution: the minimum average bits/molecule for any lossless code
+(source-coding theorem). H is never known exactly -- every code is an
+upper bound, and better models give tighter bounds:
 
-- canonical SMILES 6.07 -> ~11% above the floor (redundant),
-- DeepSMILES 5.75 -> ~5% above the floor (captures ~60% of the slack),
-- hard floor 5.46 -> no lossless letter grammar can go below this.
+| bound | bits/mol | what it is |
+|---|---|---|
+| uniform BPE code (tokens x log2 vocab) | 65.5 | loosest; assumes equiprobable tokens |
+| undertrained GPT held-out NLL | <= 48 | tighter, still falling |
+| true entropy H | **< 48** (likely ~30-40) | the real floor |
 
-A hand-designed grammar denser than DeepSMILES (e.g. also dropping bond
-symbols inferable from valence, or aromaticity) could claw back the
-remaining ~0.3 tokens/molecule, but that ~5% is the entire prize left.
+An earlier version of this doc and figure labeled the 65.5 uniform-code
+value "entropy floor" -- that was wrong. 65.5 assumes every BPE token is
+equally likely; a real LM predicts non-uniformly and reaches <= 48
+bits/molecule (the generative run, still improving). So the true floor
+is well below 65.5, the per-vocab token "floor" of 5.46 does not apply
+under a real model, and there is more headroom for a denser grammar than
+the ~5% first claimed. What is robust: DeepSMILES yields shorter
+sequences (5.75 vs 6.07 tokens/mol), which helps transformer compute
+(O(L^2)) regardless of entropy.
 
 ## Takeaway
 

@@ -15,9 +15,13 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 from matplotlib import font_manager  # noqa: E402
 
-# Entropy estimate (bits/molecule): the lowest bits/molecule reached at
-# large vocab in earlier runs (SMILES-BPE at vocab 32768 ~= 65.5).
-ENTROPY = 65.5
+# Uniform-code bound (bits/molecule): tokens x log2 vocab bottoms out
+# near 65.5 for SMILES-BPE at vocab 32768. This is NOT the entropy -- it
+# assumes a uniform code over the vocabulary. A trained LM reaches <= 48
+# bits/molecule (generative run, still falling), so the true entropy
+# floor is well below this line.
+UNIFORM_BOUND = 65.5
+LM_BOUND = 48.0
 COLORS = {"smiles": "#D55E00", "deepsmiles": "#0072B2", "selfies": "#999999"}
 LABELS = {"smiles": "canonical SMILES", "deepsmiles": "DeepSMILES",
           "selfies": "SELFIES"}
@@ -45,9 +49,12 @@ def main(src, out):
         b.plot(vs, [row[str(v)]["bits"] for v in vs], "o-",
                color=COLORS[name], label=LABELS[name])
     vs = sorted(int(k) for k in next(iter(data.values())) if k != "0")
-    a.plot(vs, [ENTROPY / log2(v) for v in vs], "k--", lw=1,
-           label="entropy floor")
-    b.axhline(ENTROPY, color="k", ls="--", lw=1, label="entropy")
+    a.plot(vs, [UNIFORM_BOUND / log2(v) for v in vs], "k:", lw=1,
+           label="uniform-code bound")
+    b.axhline(UNIFORM_BOUND, color="k", ls=":", lw=1,
+              label="uniform-code bound")
+    b.axhline(LM_BOUND, color="k", ls="--", lw=1,
+              label="trained-LM bound (true floor below)")
     for ax in (a, b):
         ax.set_xscale("log", base=2)
         ax.set_xlabel("BPE vocabulary size")
