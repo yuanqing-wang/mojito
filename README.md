@@ -30,3 +30,10 @@ assert canonical(back) == canonical(mol)
 ```
 
 Requires `rdkit`.
+
+## Tests
+```bash
+pytest test_smiles_program.py
+```
+Covers round-trip, permutation-invariance, and fidelity to RDKit's
+canonical atom order. Requires `pytest`.
