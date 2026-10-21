@@ -50,11 +50,13 @@ class Grammar:
     deep: bool          # apply DeepSMILES transform
     k: int              # number of BPE merges (0 = atom-level)
     kekule: bool = False  # write Kekule instead of aromatic SMILES
+    extra: tuple = ()     # names of reversible token rules (rules.REGISTRY)
 
     def label(self):
         base = "deep" if self.deep else "smiles"
         kek = "+kek" if self.kekule else ""
-        return f"{base}{kek}+bpe{self.k}"
+        ex = "".join(f"+{r}" for r in self.extra)
+        return f"{base}{kek}{ex}+bpe{self.k}"
 
 
 def canonical(smiles):
@@ -80,8 +82,29 @@ def base_decode(text, deep, kekule=False):
         return None
 
 
-def round_trips(smiles, deep, kekule=False):
-    m = base_decode(base_string(smiles, deep, kekule), deep, kekule)
+def apply_rules(tokens, extra, encode=True):
+    """Apply reversible token rules in order (encode) or reverse (decode)."""
+    from .rules import REGISTRY
+    rules = [REGISTRY[n] for n in extra]
+    for rule in (rules if encode else reversed(rules)):
+        tokens = rule.encode(tokens) if encode else rule.decode(tokens)
+    return tokens
+
+
+def grammar_tokens(smiles, deep, kekule=False, extra=()):
+    """Base string -> atom tokens -> reversible rules (encode)."""
+    s = base_string(smiles, deep, kekule)
+    if s is None:
+        return None
+    return apply_rules(_ATOM.findall(s), extra, encode=True)
+
+
+def round_trips(smiles, deep, kekule=False, extra=()):
+    toks = grammar_tokens(smiles, deep, kekule, extra)
+    if toks is None:
+        return False
+    s = "".join(apply_rules(list(toks), extra, encode=False))
+    m = base_decode(s, deep, kekule)
     return m is not None and canonical(
         Chem.MolToSmiles(m)
     ) == canonical(smiles)
@@ -142,12 +165,12 @@ def encode_ids(grammar, train_smi, held_smi):
     None if the grammar fails the round-trip gate. Shared by the MDL
     evaluator and by GPT training (proxy validation)."""
     sample = random.sample(train_smi, min(200, len(train_smi)))
-    if not all(round_trips(s, grammar.deep, grammar.kekule)
+    if not all(round_trips(s, grammar.deep, grammar.kekule, grammar.extra)
                for s in sample):
         return None
-    tr = [_ATOM.findall(base_string(s, grammar.deep, grammar.kekule))
+    tr = [grammar_tokens(s, grammar.deep, grammar.kekule, grammar.extra)
           for s in train_smi]
-    ev = [_ATOM.findall(base_string(s, grammar.deep, grammar.kekule))
+    ev = [grammar_tokens(s, grammar.deep, grammar.kekule, grammar.extra)
           for s in held_smi]
     tr = [t for t in tr if t]
     ev = [t for t in ev if t]
