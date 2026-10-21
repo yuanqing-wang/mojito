@@ -1,0 +1,40 @@
+{
+ "rows": [
+  {
+   "grammar": "smiles+bpe0",
+   "bigram_proxy_bits": 93.18671263789659,
+   "lm_bits": 60.86515228039824,
+   "tokens_per_mol": 38.1435,
+   "vocab": 39
+  },
+  {
+   "grammar": "smiles+bpe512",
+   "bigram_proxy_bits": 58.91146819485869,
+   "lm_bits": 67.18520538399338,
+   "tokens_per_mol": 9.342,
+   "vocab": 551
+  },
+  {
+   "grammar": "deep+bpe0",
+   "bigram_proxy_bits": 82.48952305695512,
+   "lm_bits": 60.52752589045263,
+   "tokens_per_mol": 40.3505,
+   "vocab": 42
+  },
+  {
+   "grammar": "deep+bpe512",
+   "bigram_proxy_bits": 55.30815218724122,
+   "lm_bits": 63.77894788633696,
+   "tokens_per_mol": 8.5805,
+   "vocab": 554
+  },
+  {
+   "grammar": "deep+bpe2048",
+   "bigram_proxy_bits": 58.22584932154615,
+   "lm_bits": 65.32895591874625,
+   "tokens_per_mol": 6.498,
+   "vocab": 2090
+  }
+ ],
+ "spearman_rho": -0.5
+}
