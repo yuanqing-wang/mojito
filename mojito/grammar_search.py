@@ -40,13 +40,21 @@ _DS = deepsmiles.Converter(rings=True, branches=True)
 
 @dataclass(frozen=True)
 class Grammar:
-    """A candidate reversible codec."""
+    """A candidate reversible codec.
+
+    Composable reversible rules: kekulize (aromatic -> Kekule bonds),
+    then DeepSMILES (drop ring-closure matching + parentheses), then BPE
+    with ``k`` merges. Each rule is individually invertible, so the
+    pipeline is lossless; the search gates on a round-trip check."""
 
     deep: bool          # apply DeepSMILES transform
     k: int              # number of BPE merges (0 = atom-level)
+    kekule: bool = False  # write Kekule instead of aromatic SMILES
 
     def label(self):
-        return f"{'deep' if self.deep else 'smiles'}+bpe{self.k}"
+        base = "deep" if self.deep else "smiles"
+        kek = "+kek" if self.kekule else ""
+        return f"{base}{kek}+bpe{self.k}"
 
 
 def canonical(smiles):
@@ -54,15 +62,17 @@ def canonical(smiles):
     return Chem.MolToSmiles(m, isomericSmiles=False) if m else None
 
 
-def base_string(smiles, deep):
-    """Reversible base encoding (canonical SMILES, optionally DeepSMILES)."""
-    c = canonical(smiles)
-    if c is None:
+def base_string(smiles, deep, kekule=False):
+    """Reversible base encoding (canonical SMILES, optionally Kekule and
+    DeepSMILES)."""
+    m = Chem.MolFromSmiles(smiles)
+    if m is None:
         return None
+    c = Chem.MolToSmiles(m, isomericSmiles=False, kekuleSmiles=kekule)
     return _DS.encode(c) if deep else c
 
 
-def base_decode(text, deep):
+def base_decode(text, deep, kekule=False):
     try:
         smi = _DS.decode(text) if deep else text
         return Chem.MolFromSmiles(smi)
@@ -70,8 +80,8 @@ def base_decode(text, deep):
         return None
 
 
-def round_trips(smiles, deep):
-    m = base_decode(base_string(smiles, deep), deep)
+def round_trips(smiles, deep, kekule=False):
+    m = base_decode(base_string(smiles, deep, kekule), deep, kekule)
     return m is not None and canonical(
         Chem.MolToSmiles(m)
     ) == canonical(smiles)
@@ -125,13 +135,20 @@ def _grammar_bits(k, base_alpha):
     return sum(2 * math.log2(base_alpha + i) for i in range(k))
 
 
-def evaluate(grammar, train_smi, held_smi, gate_sample=200):
-    """Round-trip gate, then two-part MDL fitness (lower is better)."""
-    sample = random.sample(train_smi, min(gate_sample, len(train_smi)))
-    if not all(round_trips(s, grammar.deep) for s in sample):
+def encode_ids(grammar, train_smi, held_smi):
+    """Encode both splits to integer-id sequences under ``grammar``.
+
+    Returns (train_ids, held_ids, vocab, tokens_per_mol, base_alpha), or
+    None if the grammar fails the round-trip gate. Shared by the MDL
+    evaluator and by GPT training (proxy validation)."""
+    sample = random.sample(train_smi, min(200, len(train_smi)))
+    if not all(round_trips(s, grammar.deep, grammar.kekule)
+               for s in sample):
         return None
-    tr = [_ATOM.findall(base_string(s, grammar.deep)) for s in train_smi]
-    ev = [_ATOM.findall(base_string(s, grammar.deep)) for s in held_smi]
+    tr = [_ATOM.findall(base_string(s, grammar.deep, grammar.kekule))
+          for s in train_smi]
+    ev = [_ATOM.findall(base_string(s, grammar.deep, grammar.kekule))
+          for s in held_smi]
     tr = [t for t in tr if t]
     ev = [t for t in ev if t]
     cm, base_alpha = _charmap(tr + ev)
@@ -145,13 +162,21 @@ def evaluate(grammar, train_smi, held_smi, gate_sample=200):
         vocab = tok.get_vocab_size()
         tok_per = sum(len(e.tokens) for e in ev_enc) / len(ev_enc)
     else:
-        stoi = {c: i for i, c in enumerate(sorted({c for s in tr_c for c in s}
-                                                  | {c for s in ev_c
-                                                     for c in s}))}
+        chars = sorted({c for s in tr_c + ev_c for c in s})
+        stoi = {c: i for i, c in enumerate(chars)}
         tr_ids = [[stoi[c] for c in s] for s in tr_c]
         ev_ids = [[stoi[c] for c in s] for s in ev_c]
         vocab = len(stoi)
         tok_per = sum(len(s) for s in ev_c) / len(ev_c)
+    return tr_ids, ev_ids, vocab, tok_per, base_alpha
+
+
+def evaluate(grammar, train_smi, held_smi, gate_sample=200):
+    """Round-trip gate, then two-part MDL fitness (lower is better)."""
+    enc = encode_ids(grammar, train_smi, held_smi)
+    if enc is None:
+        return None
+    tr_ids, ev_ids, vocab, tok_per, base_alpha = enc
     corpus_bits = _bigram_bits(tr_ids, ev_ids, vocab)
     gram_bits = _grammar_bits(grammar.k, base_alpha)
     fitness = corpus_bits + gram_bits / len(train_smi)
@@ -166,39 +191,100 @@ def evaluate(grammar, train_smi, held_smi, gate_sample=200):
     }
 
 
+PROPOSER_SYSTEM = (
+    "You design reversible string grammars for molecules. Given scored "
+    "candidates (lower MDL bits/molecule is better), propose the next "
+    "grammar to evaluate as JSON {\"deep\": bool, \"kekule\": bool, "
+    "\"k\": int} where deep=DeepSMILES, kekule=Kekule bonds, k=number of "
+    "BPE merges. Explore toward lower MDL; respect the vocab/length "
+    "trade-off (k too large inflates grammar cost). Reply with JSON only."
+)
+
+
+def llm_propose(results, ks, timeout=30):
+    """LLM proposer (FunSearch's mutation step). Calls the Anthropic
+    Messages API if ANTHROPIC_API_KEY is set; returns a Grammar or None
+    (caller falls back to the programmatic proposer). A fuller version
+    would have the LLM emit a *new reversible rule* as code, gated by the
+    round-trip check; here it selects within the existing rule library,
+    which needs no sandboxed execution."""
+    import json
+    import os
+    import urllib.request
+    key = os.environ.get("ANTHROPIC_API_KEY")
+    if not key:
+        return None
+    base = os.environ.get("ANTHROPIC_BASE_URL", "https://api.anthropic.com")
+    best = sorted(results, key=lambda r: r["fitness"])[:8]
+    rows = "\n".join(
+        f'{{"deep": {r["deep"]}, "kekule": {r.get("kekule", False)}, '
+        f'"k": {r["k"]}}} -> {r["fitness"]:.1f} bits' for r in best)
+    body = json.dumps({
+        "model": os.environ.get("MOJITO_PROPOSER_MODEL", "claude-haiku-5-5"),
+        "max_tokens": 128,
+        "system": PROPOSER_SYSTEM,
+        "messages": [{"role": "user",
+                      "content": f"Scored candidates:\n{rows}\n"
+                      f"Allowed k: {ks}. Propose the next grammar."}],
+    }).encode()
+    req = urllib.request.Request(
+        f"{base}/v1/messages", data=body, headers={
+            "x-api-key": key, "anthropic-version": "2023-06-01",
+            "content-type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            out = json.load(resp)
+        text = "".join(b.get("text", "") for b in out["content"])
+        spec = json.loads(text[text.index("{"):text.rindex("}") + 1])
+        k = min(ks, key=lambda x: abs(x - int(spec["k"])))
+        return Grammar(bool(spec["deep"]), k, bool(spec.get("kekule", False)))
+    except Exception:
+        return None
+
+
 def mutate(g, ks, rng):
-    """Programmatic proposer: flip DeepSMILES or step k. (An LLM proposer
-    would instead write a new reversible rule.)"""
-    if rng.random() < 0.5:
-        return Grammar(not g.deep, g.k)
+    """Programmatic proposer: toggle a reversible rule or step k. (An LLM
+    proposer would instead write a new reversible rule.)"""
+    r = rng.random()
+    if r < 0.4:
+        return Grammar(not g.deep, g.k, g.kekule)
+    if r < 0.6:
+        return Grammar(g.deep, g.k, not g.kekule)
     i = ks.index(g.k)
     j = min(max(i + rng.choice([-1, 1]), 0), len(ks) - 1)
-    return Grammar(g.deep, ks[j])
+    return Grammar(g.deep, ks[j], g.kekule)
 
 
-def search(train_smi, held_smi, ks, generations=30, seed=0, log=print):
+def search(train_smi, held_smi, ks, generations=30, seed=0, log=print,
+           use_llm=False):
     """Evolutionary search minimizing two-part MDL. Returns all evaluated
-    results and the best grammar."""
+    results and the best grammar. With ``use_llm`` the Anthropic API
+    proposes mutations (FunSearch's LLM step), falling back to the
+    programmatic proposer per step when unavailable."""
     rng = random.Random(seed)
-    seeds = [Grammar(False, 0), Grammar(False, max(ks)), Grammar(True, 0)]
+    seeds = [Grammar(False, 0), Grammar(False, max(ks)), Grammar(True, 0),
+             Grammar(True, 512, True)]
     pop, seen = [], {}
     for g in seeds:
         r = evaluate(g, train_smi, held_smi)
         if r:
-            seen[(g.deep, g.k)] = r
+            seen[(g.deep, g.k, g.kekule)] = r
             pop.append((r["fitness"], g))
             log(r)
     for _ in range(generations):
         _, parent = min(pop, key=lambda x: x[0])
-        child = mutate(parent, ks, rng)
-        if (child.deep, child.k) in seen:
-            child = mutate(
-                rng.choice([g for _, g in pop]), ks, rng)
-        if (child.deep, child.k) in seen:
+        child = None
+        if use_llm:
+            child = llm_propose(list(seen.values()), ks)
+        if child is None or (child.deep, child.k, child.kekule) in seen:
+            child = mutate(parent, ks, rng)
+        if (child.deep, child.k, child.kekule) in seen:
+            child = mutate(rng.choice([g for _, g in pop]), ks, rng)
+        if (child.deep, child.k, child.kekule) in seen:
             continue
         r = evaluate(child, train_smi, held_smi)
         if r:
-            seen[(child.deep, child.k)] = r
+            seen[(child.deep, child.k, child.kekule)] = r
             pop.append((r["fitness"], child))
             log(r)
     best = min(seen.values(), key=lambda r: r["fitness"])

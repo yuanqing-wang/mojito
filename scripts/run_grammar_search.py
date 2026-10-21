@@ -75,7 +75,8 @@ def run(args):
         print(json.dumps(r), flush=True)
 
     results, best = search(train, held, ks, generations=args.generations,
-                           seed=args.seed, log=record)
+                           seed=args.seed, log=record,
+                           use_llm=args.proposer == "llm")
     with open(os.path.join(args.out, "best.json"), "w") as f:
         json.dump(best, f, indent=1)
     plot(results, os.path.join(args.out, "grammar_search.pdf"))
@@ -90,4 +91,7 @@ if __name__ == "__main__":
     p.add_argument("--n-eval", type=int, default=3000)
     p.add_argument("--generations", type=int, default=20)
     p.add_argument("--seed", type=int, default=0)
+    p.add_argument("--proposer", choices=["programmatic", "llm"],
+                   default="programmatic",
+                   help="llm uses the Anthropic API (needs API key)")
     run(p.parse_args())
