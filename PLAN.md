@@ -260,3 +260,60 @@ Risk: downstream fitness is expensive and noisy, and relaxing
 losslessness invites trivial-but-useless codes -- hence the sufficiency
 gate, fixed-compute controls, seeds/CIs, and the generalisation gate from
 section 2.
+
+## 7. Empirical findings (two decisive experiments, ZINC250k)
+
+Two experiments were run to decide where effort should go. Both point
+the same way: **compression is tokenizer-independent; downstream utility
+is not.**
+
+### 7a. Arithmetic coding -> compression is tokenizer-independent
+Arithmetic coding against a learned prior emits exactly the model's NLL
+as bits, so held-out bits/molecule under an equal-budget LM is the
+achievable compressed size for a tokenization. Three tokenizations,
+identical 3-layer GPT, 15k train / 2k held-out, 4000 steps:
+
+| tokenization | bits/molecule |
+|---|---|
+| character | 50.0 |
+| atom (SMILES regex) | 50.4 |
+| BPE-512 | 54.3 (still descending; bigger vocab undertrains per step) |
+
+Character and atom converge to the **same ~50 bits/mol**, BPE trends to
+it. So any decent model + arithmetic coding reaches the molecular-entropy
+floor (<= 50 bits/mol here, still dropping) **regardless of tokenizer**.
+Note this is far below the uniform-code BPE bound (65.5) used earlier --
+that bound overstated the achievable size; the real floor is ~50 and
+tokenizer-independent. **Conclusion: no tokenizer beats another on
+compression. The compression game is over.**
+
+### 7b. Downstream probe -> token units matter a lot
+Count-vector ridge regression to ZINC's own logP / QED / SAS (15k train
+/ 3k held-out), held-out R^2:
+
+| tokenization | vocab | logP | QED | SAS |
+|---|---|---|---|---|
+| atom | 46 | 0.880 | 0.358 | 0.894 |
+| **BPE-512** | 558 | **0.938** | **0.464** | **0.923** |
+| BRICS motif | 1000 | 0.544 | 0.252 | 0.562 |
+
+Ranking **BPE > atom > BRICS**: a **granularity sweet spot**. Medium-
+grained *learned* units (BPE substructures) win; raw atoms are too
+coarse; hand-defined chemical motifs (BRICS) are too sparse to
+generalise. The BPE gain (+6% logP, +30% relative QED) is **not bounded
+by entropy** -- the downstream objective ranks grammars differently from
+compression and rewards learned, dense, medium-grained units.
+
+### 7c. Consequence for the harness
+- **Drop compression as the search objective** -- it cannot distinguish
+  grammars (7a). Keep bits only as a reported diagnostic.
+- **Optimise objective 0b (downstream utility)** -- it is the only
+  objective that discriminates (7b), and its gains are not entropy-bounded.
+- **Aggressive unit variation = learned, dense, medium-grained** units
+  with frequency control (BPE/Zipf-style), *not* BRICS-style fragments.
+  The learned-motif codebook (axis 2) should target this sweet spot.
+- Task choice matters: logP/SAS are composition-driven (atoms already
+  strong); the unit advantage should be larger on structure-dependent
+  tasks (activity, scaffold) -- test those next.
+
+Scripts: `exp_arith.py`, `exp_downstream.py` (on the experiments branch).
