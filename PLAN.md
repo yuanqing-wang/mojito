@@ -9,6 +9,36 @@ point.
 
 ## 0. What "better" means (objective)
 
+Two objectives; the harness supports both and reports each.
+
+### 0a. Compression MDL (bounded)
+See below. Honest ceiling: near molecular entropy.
+
+### 0b. Downstream utility (the unbounded objective)
+Fitness = how well a **fixed-budget** model learns a task from the
+encoded corpus, *not* how short it is. This is not bounded by entropy: a
+grammar whose token boundaries align with chemically meaningful units
+(functional groups, scaffolds, pharmacophores) gives a better inductive
+bias and can beat SMILES substantially on the metric that matters, at
+equal bits. Precedent: randomized SMILES improve generators
+(Arus-Pous 2019), SELFIES improve validity, fragment tokenizers help
+some property tasks.
+
+Candidate downstream fitnesses (cheap -> expensive):
+- **linear-probe** on frozen features of a small LM trained briefly on
+  the grammar -> R^2 / AUROC on MoleculeNet tasks (cheapest, low
+  variance);
+- **masked-token / next-token** accuracy (grammar-native, no labels);
+- **generation** validity + novelty + FCD at fixed compute;
+- **few-shot** property prediction (sample efficiency = inductive-bias
+  quality).
+
+Control for confounds: equal model, equal compute, equal sequence-length
+budget, multiple seeds with CIs. Report downstream metric *and* bits, so
+"better representation" is not just "bigger model / longer sequence".
+
+## 0c. Compression MDL (the bounded objective, for reference)
+
 Minimise **two-part minimum description length** over a held-out corpus:
 
     score(program) = L(corpus | program) + L(program)          [bits]
@@ -119,8 +149,12 @@ should target, example encodings, and failure feedback; it returns a diff.
 Gates (pass/fail): round-trip %, invariance %, determinism, self-contained.
 
 Scored:
+- **downstream utility** (objective 0b) -- linear-probe R^2/AUROC,
+  masked-token accuracy, or generation validity/novelty/FCD at fixed
+  compute, with seeds + CIs. The primary term when optimising for
+  utility; reported always.
 - **held-out bits/molecule** -- n-gram proxy (in-loop) and trained-LM
-  (frontier); the primary term.
+  (frontier); the primary term when optimising for compression.
 - **MDL total** = `L(program)` + amortised corpus bits.
 - **tokens/molecule** and **vocabulary size** (compute + parameter cost).
 - **program complexity** (source bytes / AST nodes) -- parsimony.
@@ -150,3 +184,79 @@ The contribution, if any, is the *method* -- autoresearch that discovers
 and certifies lossless molecular languages under MDL -- plus an honest
 Pareto map of how far canonical SMILES can be improved. Negative results
 (the entropy floor is close) are part of the result, not a failure.
+
+## 6. Aggressive grammar variation (where the real gains are)
+
+Why past gains were small: we optimised **compression** under **lossless
++ canonical** constraints, and compression is bounded by molecular
+entropy, which canonical SMILES nearly saturates (DeepSMILES recovered
+~5%, traversal reorder ~0%). Surface-syntax edits can only chase that
+residual. Bigger gains require leaving the regime along one of four axes.
+The harness should propose **macro-mutations** on these axes -- a
+proposer that can introduce a new *component type*, not only diff an
+existing one.
+
+### Axis 1 -- change the objective (biggest lever)
+Optimise 0b (downstream utility), not bits. Unbounded by entropy; the
+grammar's value becomes inductive bias. Every mutation below is far more
+valuable scored this way than by compression.
+
+### Axis 2 -- change the token UNIT (semantic, not syntactic)
+Stop tokenising atoms/characters; tokenise *meaning*.
+- **Learned motif codebook**: VQ over substructure embeddings, so one
+  token = a chemically meaningful fragment; lossless via a canonical-
+  spelling fallback for rare motifs (we scoped this earlier).
+- **Hierarchical / multi-scale**: coarse scaffold tokens + fine
+  decoration tokens, read with structural attention.
+- **Typed tokens**: tokens carry (symbol, role, environment) so the
+  model sees chemistry, not characters.
+
+### Axis 3 -- change the CODING (model-based, context-sensitive)
+SMILES is a fixed context-free code. Replace it with a code that uses the
+molecule's own statistics:
+- **Predictive / arithmetic coding** against a learned prior: emit the
+  residual against a model's next-token prediction. This provably
+  approaches entropy and can beat any fixed tokenizer on bits -- the
+  principled aggressive move if compression stays a metric.
+- **Context-sensitive grammar**: the encoding of a substructure depends
+  on its neighbourhood (a learned grammar, not a hand CFG).
+
+### Axis 4 -- change the STRUCTURE / losslessness contract
+Drop assumptions SMILES bakes in.
+- **Non-linear output**: emit a tree / set of typed, position-encoded
+  tokens read with graph attention -- escapes the 1D serialisation tax
+  (the explicit-connectivity cost that sank the block-cut tree only
+  appears when you force a string).
+- **Rate-distortion / task-sufficient (lossy)**: for prediction tasks,
+  keep only task-relevant information (information bottleneck). Search
+  the rate-distortion frontier instead of insisting on full
+  reconstruction; big gains where the task does not need every atom.
+- **Co-design grammar + model**: tokens map to typed embeddings and
+  structural attention biases; the "grammar" includes the model
+  interface, optimised jointly.
+
+### Taxonomy for the proposer
+- *Micro* (what we had): edit the syntax of an existing codec. Bounded.
+- *Macro* (new): change the unit (axis 2), the coding (axis 3), the
+  structure/contract (axis 4), or the objective (axis 1). Unbounded.
+
+The proposer is given this taxonomy and asked for macro-mutations
+explicitly, each still gated (losslessness where the contract requires
+it; determinism; sandbox; self-contained). Lossy/structured variants
+relax the *losslessness* gate but must pass a **sufficiency** gate
+instead: the downstream metric may not drop below a floor.
+
+### Honest ranking / first experiments
+1. **Downstream fitness + learned-motif tokens** (axes 1+2): most likely
+   real win, moderate cost. First target.
+2. **Rate-distortion lossy grammar for a property task** (axes 1+4):
+   large potential gain, clean to measure.
+3. **Arithmetic coding vs best tokenizer** (axis 3): settles whether any
+   compression headroom remains against a learned prior -- a clean,
+   publishable number either way.
+4. Non-linear / co-design (axis 4): highest ceiling, highest cost; later.
+
+Risk: downstream fitness is expensive and noisy, and relaxing
+losslessness invites trivial-but-useless codes -- hence the sufficiency
+gate, fixed-compute controls, seeds/CIs, and the generalisation gate from
+section 2.
