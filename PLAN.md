@@ -316,4 +316,45 @@ compression and rewards learned, dense, medium-grained units.
   strong); the unit advantage should be larger on structure-dependent
   tasks (activity, scaffold) -- test those next.
 
-Scripts: `exp_arith.py`, `exp_downstream.py` (on the experiments branch).
+### 7d. Structure-dependent tasks -> the optimum is task-dependent
+Scaffold-split activity prediction (MoleculeNet BBBP, BACE), count-vector
+logistic regression, **5 scaffold splits, mean +/- std test AUROC**, with
+ECFP (Morgan r2) as the gold-standard reference:
+
+| tokenization | BBBP | BACE |
+|---|---|---|
+| atom | 0.904 +/- .023 | 0.716 +/- .049 |
+| BPE-512 | **0.935 +/- .012** | 0.799 +/- .040 |
+| BPE-2048 | 0.911 +/- .021 | 0.787 +/- .025 |
+| BRICS motif | 0.768 +/- .035 | 0.831 +/- .029 |
+| ECFP (ref) | 0.869 +/- .028 | **0.866 +/- .023** |
+
+Robust conclusions (with error bars, two datasets):
+1. **Tokenisation has a large, significant downstream effect** -- spread
+   ~0.15-0.17 AUROC within a dataset, vs *zero* for compression (7a).
+   Atoms are never best; substructure-aware units help.
+2. **The optimal granularity is task-dependent.** BBBP (permeability,
+   composition-leaning) -> medium BPE best, big motifs (BRICS) worst.
+   BACE (binding, structure-driven) -> big motifs / circular
+   substructures (BRICS, ECFP) best, atoms far worst. No single
+   tokenizer dominates; BPE-512 is the robust generalist (top-2 on both),
+   ECFP the strong reference.
+
+### 7e. Why this argues *for* the harness
+Compression offers nothing to search (7a: floor, tokenizer-independent).
+Downstream utility offers a lot *and* its optimum moves with the task
+(7b, 7d). That is exactly the setting where an automated, **per-task**
+search over grammars/tokenizers pays off -- pick medium-BPE for one task,
+motif/circular units for another. So the harness's objective is 0b
+(downstream), conditioned on the task; compression stays a diagnostic.
+The project's thesis, now evidence-backed: **there is no better lossless
+compression of molecules than SMILES, but there is a better, task-
+dependent representation for learning -- and finding it is a search
+problem worth automating.**
+
+Caveats: bag-of-counts + logistic regression (not a sequence model); two
+datasets; a sequence-LM probe and more tasks (Tox21, HIV, scaffold-hop
+splits) are the rigorous next step before any publication claim.
+
+Scripts: `exp_arith.py`, `exp_downstream.py`, `exp_activity.py` (on the
+experiments branch).
